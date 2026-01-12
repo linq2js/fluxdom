@@ -9,7 +9,7 @@ export interface Action {
     };
 }
 /** A pure function that transitions state based on an action. */
-export type Reducer<TState, TAction extends Action> = (state: TState, action: TAction) => TState;
+export type Reducer<TState, TAction extends Action = Action> = (state: TState, action: TAction) => TState;
 /**
  * Action shape used by reducer maps.
  * Contains the action type and an array of arguments.

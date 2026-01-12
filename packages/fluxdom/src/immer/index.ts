@@ -7,15 +7,15 @@
  *
  * @example
  * ```ts
- * import { withImmer } from "fluxdom/immer";
+ * import { immerActions } from "fluxdom/immer";
  *
- * const todoActions = app.actions(
- *   withImmer({
- *     add: (state, text: string) => {
- *       state.items.push({ id: Date.now(), text, done: false });
- *     },
- *   })
- * );
+ * const todoActions = immerActions({
+ *   add: (state, text: string) => {
+ *     state.items.push({ id: Date.now(), text, done: false });
+ *   },
+ * });
+ *
+ * const store = app.store("todos", { items: [] }, todoActions.reducer);
  * ```
  */
-export { withImmer } from "./withImmer";
+export { withImmer, immerActions } from "./withImmer";

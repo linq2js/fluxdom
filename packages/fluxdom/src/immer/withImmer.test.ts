@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { domain } from "../core/domain";
 import { actions } from "../core/actions";
-import { withImmer } from "./withImmer";
+import { withImmer, immerActions } from "./withImmer";
 
 describe("withImmer", () => {
   describe("basic mutations", () => {
@@ -286,5 +286,91 @@ describe("withImmer", () => {
       app.dispatch({ type: "RESET_ALL" });
       expect(store.getState().count).toBe(0);
     });
+  });
+});
+
+describe("immerActions", () => {
+  it("should work as a shorthand for actions(withImmer(...))", () => {
+    const app = domain("app");
+
+    const counterActions = immerActions({
+      increment: (state: { count: number }) => {
+        state.count += 1;
+      },
+      decrement: (state: { count: number }) => {
+        state.count -= 1;
+      },
+    });
+
+    const store = app.store("counter", { count: 0 }, counterActions.reducer);
+
+    store.dispatch(counterActions.increment());
+    expect(store.getState().count).toBe(1);
+
+    store.dispatch(counterActions.increment());
+    expect(store.getState().count).toBe(2);
+
+    store.dispatch(counterActions.decrement());
+    expect(store.getState().count).toBe(1);
+  });
+
+  it("should support domain reducer as second param", () => {
+    type AppAction = { type: "RESET_ALL" };
+    const app = domain<AppAction>("app");
+
+    const counterActions = immerActions(
+      {
+        increment: (state: { count: number }) => {
+          state.count += 1;
+        },
+      },
+      (state, action: AppAction) => {
+        if (action.type === "RESET_ALL") return { count: 0 };
+        return state;
+      }
+    );
+
+    const store = app.store("counter", { count: 10 }, counterActions.reducer);
+
+    store.dispatch(counterActions.increment());
+    expect(store.getState().count).toBe(11);
+
+    app.dispatch({ type: "RESET_ALL" });
+    expect(store.getState().count).toBe(0);
+  });
+
+  it("should have action creators with .type property", () => {
+    const todoActions = immerActions({
+      add: (state: { items: string[] }, text: string) => {
+        state.items.push(text);
+      },
+      clear: (state: { items: string[] }) => {
+        state.items = [];
+      },
+    });
+
+    expect(todoActions.add.type).toBe("add");
+    expect(todoActions.clear.type).toBe("clear");
+    expect(todoActions.add("test")).toEqual({ type: "add", args: ["test"] });
+  });
+
+  it("should produce immutable state", () => {
+    const app = domain("app");
+
+    const counterActions = immerActions({
+      increment: (state: { count: number }) => {
+        state.count += 1;
+      },
+    });
+
+    const store = app.store("counter", { count: 0 }, counterActions.reducer);
+
+    const state1 = store.getState();
+    store.dispatch(counterActions.increment());
+    const state2 = store.getState();
+
+    expect(state1).not.toBe(state2);
+    expect(state1.count).toBe(0);
+    expect(state2.count).toBe(1);
   });
 });

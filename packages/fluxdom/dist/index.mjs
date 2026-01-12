@@ -1,18 +1,19 @@
 var H = Object.defineProperty;
-var I = (t, e, r) => e in t ? H(t, e, { enumerable: !0, configurable: !0, writable: !0, value: r }) : t[e] = r;
-var d = (t, e, r) => I(t, typeof e != "symbol" ? e + "" : e, r);
-function O(t) {
-  return Object.assign(t, {
-    use(e) {
-      const r = e(t);
-      return r ? typeof r == "object" || typeof r == "function" ? "use" in r ? r : O(r) : r : t;
+var I = (e, t, r) => t in e ? H(e, t, { enumerable: !0, configurable: !0, writable: !0, value: r }) : e[t] = r;
+var d = (e, t, r) => I(e, typeof t != "symbol" ? t + "" : t, r);
+import { a as nt, c as ot, d as st, b as it, i as ct } from "./actions-BvsKXo5m.mjs";
+function D(e) {
+  return Object.assign(e, {
+    use(t) {
+      const r = t(e);
+      return r ? typeof r == "object" || typeof r == "function" ? "use" in r ? r : D(r) : r : e;
     }
   });
 }
 const M = () => {
 };
 class U {
-  constructor(e) {
+  constructor(t) {
     /** Set of registered listeners */
     d(this, "_listeners");
     /** Settled payload (if settled) */
@@ -21,13 +22,13 @@ class U {
     d(this, "_isSettled", !1);
     d(this, "size", () => this._listeners.size);
     d(this, "settled", () => this._isSettled);
-    d(this, "on", (e, r) => {
-      let n;
+    d(this, "on", (t, r) => {
+      let o;
       if (r === void 0)
-        n = Array.isArray(e) ? e : [e];
+        o = Array.isArray(t) ? t : [t];
       else {
-        const s = e, i = Array.isArray(r) ? r : [r];
-        n = [
+        const s = t, i = Array.isArray(r) ? r : [r];
+        o = [
           (u) => {
             const h = s(u);
             if (h)
@@ -38,353 +39,328 @@ class U {
       }
       if (this._isSettled) {
         const s = this._settledPayload;
-        for (let i = 0; i < n.length; i++)
-          n[i](s);
+        for (let i = 0; i < o.length; i++)
+          o[i](s);
         return M;
       }
-      const o = this._listeners;
-      for (let s = 0; s < n.length; s++)
-        o.add(n[s]);
+      const n = this._listeners;
+      for (let s = 0; s < o.length; s++)
+        n.add(o[s]);
       return () => {
-        for (let s = 0; s < n.length; s++)
-          o.delete(n[s]);
+        for (let s = 0; s < o.length; s++)
+          n.delete(o[s]);
       };
     });
-    d(this, "emit", (e) => {
-      this._isSettled || this._doEmit(e, !1, !1);
+    d(this, "emit", (t) => {
+      this._isSettled || this._doEmit(t, !1, !1);
     });
-    d(this, "emitLifo", (e) => {
-      this._isSettled || this._doEmit(e, !1, !0);
+    d(this, "emitLifo", (t) => {
+      this._isSettled || this._doEmit(t, !1, !0);
     });
     d(this, "clear", () => {
       this._listeners.clear();
     });
-    d(this, "emitAndClear", (e) => {
-      this._isSettled || this._doEmit(e, !0, !1);
+    d(this, "emitAndClear", (t) => {
+      this._isSettled || this._doEmit(t, !0, !1);
     });
-    d(this, "emitAndClearLifo", (e) => {
-      this._isSettled || this._doEmit(e, !0, !0);
+    d(this, "emitAndClearLifo", (t) => {
+      this._isSettled || this._doEmit(t, !0, !0);
     });
-    d(this, "settle", (e) => {
-      this._isSettled || (this._settledPayload = e, this._isSettled = !0, this._doEmit(e, !0, !1));
+    d(this, "settle", (t) => {
+      this._isSettled || (this._settledPayload = t, this._isSettled = !0, this._doEmit(t, !0, !1));
     });
     /**
      * Internal emit implementation.
      * Creates snapshot to handle modifications during iteration.
      */
-    d(this, "_doEmit", (e, r, n) => {
-      const o = this._listeners, s = o.size;
+    d(this, "_doEmit", (t, r, o) => {
+      const n = this._listeners, s = n.size;
       if (s === 0) return;
-      const i = Array.from(o);
-      if (r && o.clear(), n)
+      const i = Array.from(n);
+      if (r && n.clear(), o)
         for (let u = s - 1; u >= 0; u--)
-          i[u](e);
+          i[u](t);
       else
         for (let u = 0; u < s; u++)
-          i[u](e);
+          i[u](t);
     });
-    this._listeners = new Set(e);
+    this._listeners = new Set(t);
   }
 }
-function v(t) {
-  return new U(t);
+function p(e) {
+  return new U(e);
 }
-function L(t, e) {
-  return Object.is(t, e);
+function L(e, t) {
+  return Object.is(e, t);
 }
-function w(t, e, r = Object.is) {
-  if (Object.is(t, e)) return !0;
-  if (typeof t != "object" || t === null || typeof e != "object" || e === null) return !1;
-  const n = Object.keys(t), o = Object.keys(e);
-  if (n.length !== o.length) return !1;
-  for (const s of n)
-    if (!Object.prototype.hasOwnProperty.call(e, s) || !r(t[s], e[s])) return !1;
+function b(e, t, r = Object.is) {
+  if (Object.is(e, t)) return !0;
+  if (typeof e != "object" || e === null || typeof t != "object" || t === null) return !1;
+  const o = Object.keys(e), n = Object.keys(t);
+  if (o.length !== n.length) return !1;
+  for (const s of o)
+    if (!Object.prototype.hasOwnProperty.call(t, s) || !r(e[s], t[s])) return !1;
   return !0;
 }
-function R(t, e) {
-  return w(t, e, w);
+function N(e, t) {
+  return b(e, t, b);
 }
-function V(t, e) {
-  return w(t, e, R);
+function V(e, t) {
+  return b(e, t, N);
 }
-function C(t, e) {
-  if (Object.is(t, e)) return !0;
-  if (typeof t != "object" || t === null || typeof e != "object" || e === null)
+function O(e, t) {
+  if (Object.is(e, t)) return !0;
+  if (typeof e != "object" || e === null || typeof t != "object" || t === null)
     return !1;
-  if (Array.isArray(t)) {
-    if (!Array.isArray(e) || t.length !== e.length) return !1;
-    for (let o = 0; o < t.length; o++)
-      if (!C(t[o], e[o])) return !1;
+  if (Array.isArray(e)) {
+    if (!Array.isArray(t) || e.length !== t.length) return !1;
+    for (let n = 0; n < e.length; n++)
+      if (!O(e[n], t[n])) return !1;
     return !0;
   }
-  if (Array.isArray(e)) return !1;
-  const r = Object.keys(t), n = Object.keys(e);
-  if (r.length !== n.length) return !1;
-  for (const o of r)
-    if (!Object.prototype.hasOwnProperty.call(e, o) || !C(t[o], e[o]))
+  if (Array.isArray(t)) return !1;
+  const r = Object.keys(e), o = Object.keys(t);
+  if (r.length !== o.length) return !1;
+  for (const n of r)
+    if (!Object.prototype.hasOwnProperty.call(t, n) || !O(e[n], t[n]))
       return !1;
   return !0;
 }
-function $(t) {
-  return !t || t === "strict" ? L : t === "shallow" ? w : t === "shallow2" ? R : t === "shallow3" ? V : t === "deep" ? C : t;
+function $(e) {
+  return !e || e === "strict" ? L : e === "shallow" ? b : e === "shallow2" ? N : e === "shallow3" ? V : e === "deep" ? O : e;
 }
-function P(t) {
-  return $(t);
+function Z(e) {
+  return $(e);
 }
-function F(t) {
-  const e = t;
-  let r = t;
+function F(e) {
+  const t = e;
+  let r = e;
   return Object.assign(
-    (...n) => r(...n),
+    (...o) => r(...o),
     {
-      getOriginal: () => e,
+      getOriginal: () => t,
       getCurrent: () => r,
-      setCurrent(n) {
-        r = n;
+      setCurrent(o) {
+        r = o;
       }
     }
   );
 }
-function G(t) {
-  return typeof t == "function" && "getOriginal" in t && "getCurrent" in t && "setCurrent" in t;
+function G(e) {
+  return typeof e == "function" && "getOriginal" in e && "getCurrent" in e && "setCurrent" in e;
 }
-function tt(t, e, r) {
-  return t ? typeof e == "function" ? G(t.value) ? (t.value.setCurrent(e), [t.value, !0]) : [F(e), !1] : e && e instanceof Date ? t.value && t.value instanceof Date && e.getTime() === t.value.getTime() ? [t.value, !0] : [e, !1] : r(t.value, e) ? [t.value, !0] : [e, !1] : typeof e == "function" ? [F(e), !1] : [e, !1];
+function T(e, t, r) {
+  return e ? typeof t == "function" ? G(e.value) ? (e.value.setCurrent(t), [e.value, !0]) : [F(t), !1] : t && t instanceof Date ? e.value && e.value instanceof Date && t.getTime() === e.value.getTime() ? [e.value, !0] : [t, !1] : r(e.value, t) ? [e.value, !0] : [t, !1] : typeof t == "function" ? [F(t), !1] : [t, !1];
 }
-function J(t, e, r, n) {
-  let o;
-  const s = v(), i = $(n || "strict"), u = () => r(...e.map((f) => f.getState())), h = () => {
+function J(e, t, r, o) {
+  let n;
+  const s = p(), i = $(o || "strict"), u = () => r(...t.map((a) => a.getState())), h = () => {
     if (s.size() > 0) {
-      const f = u();
-      (!o || !i(o.value, f)) && (o = { value: f }, s.emit());
+      const a = u();
+      (!n || !i(n.value, a)) && (n = { value: a }, s.emit());
     } else
-      o = void 0;
+      n = void 0;
   };
-  return e.forEach((f) => f.onChange(h)), O({
-    name: t,
-    dependencies: e,
-    getState: () => (o || (o = { value: u() }), o.value),
-    onChange: (f) => s.on(f)
+  return t.forEach((a) => a.onChange(h)), D({
+    name: e,
+    dependencies: t,
+    getState: () => (n || (n = { value: u() }), n.value),
+    onChange: (a) => s.on(a)
   });
 }
-function K(t) {
-  const e = Object.assign(
+function K(e) {
+  const t = Object.assign(
     (r) => () => {
-      const n = e.current;
-      return e.current = r, () => {
-        e.current = n;
+      const o = t.current;
+      return t.current = r, () => {
+        t.current = o;
       };
     },
     {
-      current: t,
+      current: e,
       // Override method for direct mutation
       override: (r) => {
-        e.current = r;
+        t.current = r;
       }
     }
   );
-  return e;
+  return t;
 }
-function Q(t, e) {
+function Q(e, t) {
   const r = [];
-  for (const n of t)
-    r.push(n());
+  for (const o of e)
+    r.push(o());
   try {
-    return e();
+    return t();
   } finally {
-    for (const n of r.reverse())
-      n();
+    for (const o of r.reverse())
+      o();
   }
 }
-const k = Object.assign(K, { use: Q }), q = k((t) => t());
-function W(t, e, r, n, o, s = "strict") {
-  let i = e;
-  const u = v(), h = $(s), m = v(), g = () => i, f = (y) => {
+const k = Object.assign(K, { use: Q }), q = k((e) => e());
+function W(e, t, r, o, n, s = "strict") {
+  let i = t;
+  const u = p(), h = $(s), m = p(), g = () => i, a = (y) => {
     if (typeof y == "function")
       return y({
-        dispatch: f,
-        domain: n,
+        dispatch: a,
+        domain: o,
         getState: g
       });
-    const S = y, _ = {
-      dispatch: f,
-      domain: n,
+    const S = y, A = {
+      dispatch: a,
+      domain: o,
       getState: g
     };
-    m.emit({ action: S, source: t, context: _ });
-    const D = i;
-    i = r(i, S), h(i, D) || q.current(u.emit), o == null || o({ action: S, source: t, context: _ });
-  }, b = (y) => {
+    m.emit({ action: S, source: e, context: A });
+    const C = i;
+    i = r(i, S), h(i, C) || q.current(u.emit), n == null || n({ action: S, source: e, context: A });
+  }, E = (y) => {
     const S = {
-      dispatch: f,
-      domain: n,
+      dispatch: a,
+      domain: o,
       getState: g
     };
-    m.emit({ action: y, source: t, context: S });
-    const _ = i;
-    i = r(i, y), i !== _ && u.emit();
+    m.emit({ action: y, source: e, context: S });
+    const A = i;
+    i = r(i, y), i !== A && u.emit();
   };
-  return O({
+  return D({
     /** Store identifier (includes domain path, e.g., "app.auth.user") */
-    name: t,
+    name: e,
     /** Get current state */
     getState: g,
     /** Dispatch action or thunk */
-    dispatch: f,
+    dispatch: a,
     /** Subscribe to state changes (only fires when state actually changes) */
     onChange: u.on,
     /** Subscribe to all dispatches (fires on every dispatch, even if no change) */
     onDispatch: m.on,
     /** @internal - Receives broadcasts from parent domain */
-    _receiveDomainAction: b
+    _receiveDomainAction: E
   });
 }
 function X() {
-  const t = /* @__PURE__ */ new Map(), e = /* @__PURE__ */ new Map();
-  return { get: (o, s) => {
-    const i = e.get(o) || o;
-    if (t.has(i))
-      return t.get(i);
+  const e = /* @__PURE__ */ new Map(), t = /* @__PURE__ */ new Map();
+  return { get: (n, s) => {
+    const i = t.get(n) || n;
+    if (e.has(i))
+      return e.get(i);
     const u = i.create(s);
-    return t.set(i, u), u;
-  }, override: (o, s) => {
-    if (t.has(o))
+    return e.set(i, u), u;
+  }, override: (n, s) => {
+    if (e.has(n))
       throw new Error(
-        `Cannot override module: Instance already created for ${o.name}`
+        `Cannot override module: Instance already created for ${n.name}`
       );
-    return e.set(o, s), () => {
-      e.delete(o);
+    return t.set(n, s), () => {
+      t.delete(n);
     };
   } };
 }
-function N(t, e, r = X(), n) {
-  const o = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Set(), i = v(), u = v(), h = () => ({
-    dispatch: b,
+function R(e, t, r = X(), o) {
+  const n = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Set(), i = p(), u = p(), h = () => ({
+    dispatch: E,
     get: y
   }), m = (c) => {
-    u.emit(c), e == null || e(c);
-  }, g = (c) => i.on(c), f = (c) => {
-    const l = i.on(c), a = u.on(c);
+    u.emit(c), t == null || t(c);
+  }, g = (c) => i.on(c), a = (c) => {
+    const l = i.on(c), f = u.on(c);
     return () => {
-      l(), a();
+      l(), f();
     };
-  }, b = (c) => {
+  }, E = (c) => {
     if (typeof c == "function")
       return c(h());
-    const l = c, a = h();
-    i.emit({ action: l, source: t, context: a }), o.forEach((p) => p._receiveDomainAction(l)), s.forEach((p) => p._receiveDomainAction(l)), e == null || e({ action: l, source: t, context: a });
+    const l = c, f = h();
+    i.emit({ action: l, source: e, context: f }), n.forEach((_) => _._receiveDomainAction(l)), s.forEach((_) => _._receiveDomainAction(l)), t == null || t({ action: l, source: e, context: f });
   }, z = (c) => {
     const l = h();
-    i.emit({ action: c, source: t, context: l }), o.forEach((a) => a._receiveDomainAction(c)), s.forEach((a) => a._receiveDomainAction(c));
-  }, y = (c) => r.get(c, A), S = (c, l) => r.override(c, l), _ = (c, l, a, p) => {
-    const j = `${t}.${c}`;
-    return J(j, l, a, p);
+    i.emit({ action: c, source: e, context: l }), n.forEach((f) => f._receiveDomainAction(c)), s.forEach((f) => f._receiveDomainAction(c));
+  }, y = (c) => r.get(c, v), S = (c, l) => r.override(c, l), A = (c, l, f, _) => {
+    const w = `${e}.${c}`;
+    return J(w, l, f, _);
   };
-  function D(c, l, a) {
-    const p = `${t}.${c}`, j = W(
-      p,
+  function C(c, l, f) {
+    const _ = `${e}.${c}`, w = W(
+      _,
       l,
-      a,
+      f,
       h(),
       m
     );
-    return o.add(j), j;
+    return n.add(w), w;
   }
-  const A = O({
-    name: t,
+  const v = D({
+    name: e,
     root: null,
     // Placeholder, set below
-    dispatch: b,
+    dispatch: E,
     get: y,
     override: S,
     onDispatch: g,
-    onAnyDispatch: f,
-    store: D,
-    derived: _,
+    onAnyDispatch: a,
+    store: C,
+    derived: A,
     domain: (c) => {
-      const l = `${t}.${c}`, a = N(
+      const l = `${e}.${c}`, f = R(
         l,
         m,
         r,
-        A.root
+        v.root
       );
-      return s.add(a), a;
+      return s.add(f), f;
     },
     _receiveDomainAction: z
   });
-  return A.root = n ?? A, A;
+  return v.root = o ?? v, v;
 }
-function et(t) {
-  return N(t);
+function x(e) {
+  return R(e);
 }
-const rt = (t, e) => ({ name: t, create: e });
-let E = 0;
-function nt(t, e) {
-  if (E++, E === 1) {
-    const r = v();
+const P = (e, t) => ({ name: e, create: t });
+let j = 0;
+function tt(e, t) {
+  if (j++, j === 1) {
+    const r = p();
     try {
-      return k.use([q(r.on)], t);
+      return k.use([q(r.on)], e);
     } finally {
-      E--, k.use([q(r.on)], () => {
-        const n = () => {
+      j--, k.use([q(r.on)], () => {
+        const o = () => {
           for (; r.size() > 0; )
             r.emitAndClear();
         };
-        e === "async" ? requestAnimationFrame(n) : n();
+        t === "async" ? requestAnimationFrame(o) : o();
       });
     }
   }
   try {
-    return t();
+    return e();
   } finally {
-    E--;
+    j--;
   }
 }
-function Y(t) {
-  const e = (...r) => ({ type: t, args: r });
-  return Object.defineProperty(e, "type", { value: t, writable: !1 }), e;
-}
-function Z(t) {
-  return (e, r) => {
-    const n = t[r.type];
-    return n ? n(e, ...r.args || []) : e;
-  };
-}
-function T(t) {
-  const e = {};
-  for (const r in t)
-    Object.prototype.hasOwnProperty.call(t, r) && (e[r] = Y(r));
-  return e;
-}
-function ot(t) {
-  return typeof t == "object" && t !== null;
-}
-function st(t, e) {
-  const r = T(t), n = Z(t);
-  return Object.assign(r, {
-    reducer: (s, i) => "args" in i ? n(s, i) : e ? e(s, i) : s
-  });
-}
 export {
-  st as actions,
-  nt as batch,
-  Y as createActionCreator,
-  T as createActionsFromMap,
-  Z as createReducerFromMap,
+  nt as actions,
+  tt as batch,
+  ot as createActionCreator,
+  st as createActionsFromMap,
+  it as createReducerFromMap,
   F as createStableFn,
-  C as deepEqual,
+  O as deepEqual,
   J as derived,
-  et as domain,
-  v as emitter,
-  P as equality,
-  ot as isReducerMap,
+  x as domain,
+  p as emitter,
+  Z as equality,
+  ct as isReducerMap,
   G as isStableFn,
-  rt as module,
+  P as module,
   $ as resolveEquality,
-  R as shallow2Equal,
+  N as shallow2Equal,
   V as shallow3Equal,
-  w as shallowEqual,
+  b as shallowEqual,
   L as strictEqual,
-  tt as tryStabilize,
-  O as withUse
+  T as tryStabilize,
+  D as withUse
 };
