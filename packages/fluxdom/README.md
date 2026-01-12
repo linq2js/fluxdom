@@ -152,7 +152,44 @@ auth.root === app; // true
 
 ### Stores — Where State Lives
 
-Every store has a name, initial state, and a reducer. Classic Redux pattern, zero boilerplate.
+Every store has a name, initial state, and a reducer. You can use either the classic reducer function or the **reducer map** syntax for less boilerplate.
+
+#### Option 1: Reducer Map (Recommended)
+
+Pass an object of handler functions. Returns `[store, actions]` tuple with auto-generated action creators:
+
+```ts
+const [todoStore, todo] = todos.store(
+  "list",
+  { items: [] },
+  {
+    add: (state, text: string) => ({
+      items: [...state.items, { id: Date.now(), text, done: false }],
+    }),
+    toggle: (state, id: number) => ({
+      items: state.items.map((t) =>
+        t.id === id ? { ...t, done: !t.done } : t
+      ),
+    }),
+  }
+);
+
+// Action creators have namespaced .type property
+todo.add.type; // "app.todos.list.add"
+todo.toggle.type; // "app.todos.list.toggle"
+
+// Actions return { type, args } objects
+todo.add("Buy milk"); // { type: "app.todos.list.add", args: ["Buy milk"] }
+todo.toggle(123); // { type: "app.todos.list.toggle", args: [123] }
+
+// Dispatch actions
+todoStore.dispatch(todo.add("Buy milk"));
+todoStore.dispatch(todo.toggle(123));
+```
+
+#### Option 2: Classic Reducer Function
+
+For more control, use the traditional Redux-style reducer:
 
 ```ts
 type TodoAction =
@@ -674,17 +711,11 @@ app.root === app; // true (root references itself)
 
 ---
 
-#### `domain.store(name, initial, reducer, equals?)`
+#### `domain.store(name, initial, reducer)`
 
-Create a state store within this domain. State can be any type — primitives, objects, arrays.
+Create a state store with a reducer function. Returns a `MutableStore`.
 
 ```ts
-// Primitive state (number, string, boolean, etc.)
-type CounterAction =
-  | { type: "INC" }
-  | { type: "DEC" }
-  | { type: "SET"; value: number };
-
 const counterStore = app.store<number, CounterAction>(
   "counter",
   0,
@@ -694,33 +725,104 @@ const counterStore = app.store<number, CounterAction>(
         return state + 1;
       case "DEC":
         return state - 1;
-      case "SET":
-        return action.value;
       default:
         return state;
     }
   }
 );
 
-// Object state (when you need multiple fields)
+counterStore.dispatch({ type: "INC" });
+```
+
+---
+
+#### `domain.store(name, initial, reducerMap)`
+
+Create a state store with a reducer map. Returns a `[store, actions]` tuple with auto-generated action creators.
+
+```ts
+const [counterStore, counter] = app.store("counter", 0, {
+  increment: (state) => state + 1,
+  decrement: (state) => state - 1,
+  add: (state, amount: number) => state + amount,
+  set: (_state, value: number) => value,
+});
+
+// Action creators have .type property with full namespace
+counter.increment.type; // "app.counter.increment"
+counter.add.type; // "app.counter.add"
+
+// Actions return { type, args } objects
+counter.increment(); // { type: "app.counter.increment", args: [] }
+counter.add(5); // { type: "app.counter.add", args: [5] }
+
+// Dispatch actions
+counterStore.dispatch(counter.increment());
+counterStore.dispatch(counter.add(10));
+
+// Multiple arguments supported
+const [posStore, pos] = app.store(
+  "position",
+  { x: 0, y: 0 },
+  {
+    setPosition: (_state, x: number, y: number) => ({ x, y }),
+    move: (state, dx: number, dy: number) => ({
+      x: state.x + dx,
+      y: state.y + dy,
+    }),
+  }
+);
+
+posStore.dispatch(pos.setPosition(10, 20));
+posStore.dispatch(pos.move(5, -3));
+```
+
+**Action type matching:**
+
+```ts
+// Use .type for action matching in listeners
+counterStore.onDispatch(({ action }) => {
+  if (action.type === counter.increment.type) {
+    console.log("Incremented!");
+  }
+});
+
+// Or at domain level
+app.onAnyDispatch(({ action }) => {
+  if (action.type === counter.add.type) {
+    console.log("Added:", action.args[0]);
+  }
+});
+```
+
+---
+
+#### Store state types
+
+State can be any type — primitives, objects, arrays.
+
+```ts
+// Primitive state (number, string, boolean, etc.)
+const [counter, c] = app.store("counter", 0, {
+  inc: (s) => s + 1,
+});
+
+// Object state
 interface UserState {
   name: string;
   email: string;
   loggedIn: boolean;
 }
 
-const userStore = app.store<UserState>(
+const [userStore, user] = app.store<UserState>(
   "user",
   { name: "", email: "", loggedIn: false },
-  (state, action) => {
-    switch (action.type) {
-      case "LOGIN":
-        return { ...state, ...action.payload, loggedIn: true };
-      case "LOGOUT":
-        return { name: "", email: "", loggedIn: false };
-      default:
-        return state;
-    }
+  {
+    login: (_state, payload: { name: string; email: string }) => ({
+      ...payload,
+      loggedIn: true,
+    }),
+    logout: () => ({ name: "", email: "", loggedIn: false }),
   }
 );
 
@@ -1359,6 +1461,7 @@ FluxDom is built with TypeScript. Every type is exported:
 
 ```ts
 import type {
+  // Core types
   Action,
   Domain,
   Store,
@@ -1371,6 +1474,14 @@ import type {
   ModuleDef,
   Equality,
   Emitter,
+
+  // Reducer map types
+  MapAction,
+  ActionCreator,
+  ReducerMap,
+  Handler,
+  ActionsFromMap,
+  StoreWithActions,
 } from "fluxdom";
 
 // Functions
@@ -1385,6 +1496,12 @@ import {
   shallowEqual,
   deepEqual,
   resolveEquality,
+
+  // Reducer map utilities
+  createActionCreator,
+  createReducerFromMap,
+  createActionsFromMap,
+  isReducerMap,
 } from "fluxdom";
 ```
 

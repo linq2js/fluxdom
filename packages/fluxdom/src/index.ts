@@ -16,6 +16,15 @@
 export { domain } from "./core/domain";
 export { derived } from "./core/derived";
 export { module } from "./core/module";
+export { batch } from "./core/batch";
+
+// Reducer map utilities
+export {
+  createActionCreator,
+  createReducerFromMap,
+  createActionsFromMap,
+  isReducerMap,
+} from "./core/reducerMap";
 
 // Utilities
 export { emitter } from "./emitter";

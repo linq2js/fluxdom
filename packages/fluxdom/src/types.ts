@@ -17,6 +17,86 @@ export type Reducer<TState, TAction extends Action> = (
   action: TAction
 ) => TState;
 
+// --- Reducer Map Types ---
+
+/**
+ * Action shape used by reducer maps.
+ * Contains the action type and an array of arguments.
+ */
+export interface MapAction<TArgs extends any[] = any[]> extends Action {
+  type: string;
+  args: TArgs;
+}
+
+/**
+ * A handler function in a reducer map.
+ * Receives state and optional arguments, returns new state.
+ */
+export type Handler<TState, TArgs extends any[] = []> = (
+  state: TState,
+  ...args: TArgs
+) => TState;
+
+/**
+ * A map of handler functions keyed by action name.
+ */
+export type ReducerMap<TState> = {
+  [key: string]: Handler<TState, any[]>;
+};
+
+/**
+ * Action creator function with a `.type` property.
+ * Calling it returns an action with type matching the handler key.
+ *
+ * @template TKey - The action name (e.g., "increment")
+ * @template TArgs - The argument types for the action
+ */
+export interface ActionCreator<TKey extends string, TArgs extends any[]> {
+  (...args: TArgs): { type: TKey; args: TArgs };
+  readonly type: TKey;
+}
+
+/**
+ * Infer action creators from a reducer map.
+ * Each handler becomes an action creator with matching parameter types.
+ */
+export type ActionsFromMap<TState, TMap extends ReducerMap<TState>> = {
+  [K in keyof TMap]: TMap[K] extends Handler<TState, infer TArgs>
+    ? ActionCreator<K & string, TArgs>
+    : never;
+};
+
+/**
+ * Generate a union of valid action types from a reducer map.
+ * Each action has type matching the handler key and args matching the handler params.
+ *
+ * @example
+ * ```ts
+ * // For map: { increment: (s, n: number) => s, decrement: (s) => s }
+ * // Generates:
+ * // | { type: "increment"; args: [number] }
+ * // | { type: "decrement"; args: [] }
+ * ```
+ */
+export type MapActionsUnion<TState, TMap extends ReducerMap<TState>> = {
+  [K in keyof TMap]: TMap[K] extends Handler<TState, infer TArgs>
+    ? { type: K & string; args: TArgs }
+    : never;
+}[keyof TMap];
+
+/**
+ * Return type when using reducer map: tuple of [store, actions].
+ * The store's dispatch is type-safe - only accepts valid actions from the map.
+ */
+export type StoreWithActions<
+  TState,
+  TMap extends ReducerMap<TState>,
+  TDomainAction extends Action = Action
+> = [
+  MutableStore<TState, MapActionsUnion<TState, TMap>, TDomainAction>,
+  ActionsFromMap<TState, TMap>
+];
+
 // --- Thunk & Dispatch System ---
 
 /**
@@ -74,12 +154,38 @@ export interface Domain<TDomainAction extends Action = Action>
   /**
    * Create a State Store within this domain.
    * The store will automatically receive actions dispatched to this Domain.
+   *
+   * @overload With reducer function - returns MutableStore
    */
   store<TState, TStoreActions extends Action = TDomainAction>(
     name: string,
     initial: TState,
     reducer: Reducer<TState, TStoreActions>
   ): MutableStore<TState, TStoreActions, TDomainAction>;
+
+  /**
+   * Create a State Store with a reducer map.
+   * Returns a tuple of [store, actions] where actions are auto-generated.
+   *
+   * @overload With reducer map - returns [store, actions] tuple
+   *
+   * @example
+   * ```ts
+   * const [store, actions] = app.store("counter", 0, {
+   *   increment: (state) => state + 1,
+   *   add: (state, amount: number) => state + amount,
+   * });
+   *
+   * actions.increment.type; // "app.counter.increment"
+   * store.dispatch(actions.increment());
+   * store.dispatch(actions.add(5));
+   * ```
+   */
+  store<TState, TMap extends ReducerMap<TState>>(
+    name: string,
+    initial: TState,
+    reducerMap: TMap
+  ): StoreWithActions<TState, TMap, TDomainAction>;
 
   /** Create a sub-domain (child) that inherits context from this domain. */
   domain<TSubDomainAction extends Action = never>(
