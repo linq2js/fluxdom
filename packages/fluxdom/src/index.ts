@@ -5,10 +5,13 @@
  *
  * @example
  * ```ts
- * import { domain, derived } from "fluxdom";
+ * import { domain, actions } from "fluxdom";
  *
- * const appDomain = domain<AppAction>("app");
- * const counterStore = appDomain.store("counter", 0, counterReducer);
+ * const app = domain("app");
+ * const counterActions = actions({
+ *   increment: (state: number) => state + 1,
+ * });
+ * const counterStore = app.store("counter", 0, counterActions.reducer);
  * ```
  */
 
@@ -18,13 +21,16 @@ export { derived } from "./core/derived";
 export { module } from "./core/module";
 export { batch } from "./core/batch";
 
-// Reducer map utilities
+// Actions helper — creates action creators + reducer
+export { actions } from "./core/actions";
+
+// Low-level action utilities
 export {
   createActionCreator,
   createReducerFromMap,
   createActionsFromMap,
   isReducerMap,
-} from "./core/reducerMap";
+} from "./core/actions";
 
 // Utilities
 export { emitter } from "./emitter";

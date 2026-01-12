@@ -12,8 +12,8 @@
  */
 
 import { produce } from "immer";
-import { domain } from "fluxdom";
-import type { DomainContext, ModuleFactory } from "fluxdom";
+import { domain, module } from "fluxdom";
+import type { DomainContext } from "fluxdom";
 
 // =============================================================================
 // Types
@@ -70,35 +70,32 @@ interface ApiService {
  * @example
  * ```ts
  * // Override in tests
- * appDomain.override(TodoApiModule, () => ({
- *   name: "mock-api",
- *   service: { getTodos: async () => [], addTodo: async (t) => ({ ... }) }
- * }));
+ * appDomain.override(TodoApiModule, module("mock-api", () => ({
+ *   getTodos: async () => [],
+ *   addTodo: async (t) => ({ ... })
+ * })));
  * ```
  */
-export const TodoApiModule: ModuleFactory<ApiService> = () => ({
-  name: "todo-api",
-  service: {
-    async getTodos() {
-      const res = await fetch(
-        "https://jsonplaceholder.typicode.com/todos?_limit=10"
-      );
-      return res.json() as Promise<Todo[]>;
-    },
-    async addTodo(title: string) {
-      const res = await fetch("https://jsonplaceholder.typicode.com/todos", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          userId: 1,
-          completed: false,
-        }),
-        headers: { "Content-type": "application/json; charset=UTF-8" },
-      });
-      return res.json() as Promise<Todo>;
-    },
+export const TodoApiModule = module<ApiService, TodoAction>("todo-api", () => ({
+  async getTodos() {
+    const res = await fetch(
+      "https://jsonplaceholder.typicode.com/todos?_limit=10"
+    );
+    return res.json() as Promise<Todo[]>;
   },
-});
+  async addTodo(title: string) {
+    const res = await fetch("https://jsonplaceholder.typicode.com/todos", {
+      method: "POST",
+      body: JSON.stringify({
+        title,
+        userId: 1,
+        completed: false,
+      }),
+      headers: { "Content-type": "application/json; charset=UTF-8" },
+    });
+    return res.json() as Promise<Todo>;
+  },
+}));
 
 // =============================================================================
 // Domain
@@ -176,7 +173,7 @@ export const addTodoThunk =
 /**
  * Shape of the todo store state.
  */
-interface TodoState {
+export interface TodoState {
   /** List of todo items */
   items: Todo[];
   /** Whether an async operation is in progress */

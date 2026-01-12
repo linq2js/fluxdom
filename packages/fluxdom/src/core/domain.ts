@@ -12,9 +12,6 @@ import {
   Store,
   Equality,
   ModuleDef,
-  ReducerMap,
-  StoreWithActions,
-  MapAction,
 } from "../types";
 
 import { withUse } from "../withUse";
@@ -22,11 +19,6 @@ import { emitter } from "../emitter";
 import { derived as derivedBase } from "./derived";
 import { createStore } from "./store";
 import { createResolver, Resolver } from "./resolver";
-import {
-  isReducerMap,
-  createReducerFromMap,
-  createActionsFromMap,
-} from "./reducerMap";
 
 // --- Domain Implementation ---
 
@@ -144,52 +136,17 @@ function createDomain<TAction extends Action>(
     return derivedBase(fullName, dependencies, selector, equals);
   };
 
-  // Overloaded store function that supports both reducer functions and reducer maps
   function store<TState, TStoreActions extends Action = TAction>(
     childName: string,
     initial: TState,
     reducer: Reducer<TState, TStoreActions>
-  ): MutableStore<TState, TStoreActions, TAction>;
-
-  function store<TState, TMap extends ReducerMap<TState>>(
-    childName: string,
-    initial: TState,
-    reducerMap: TMap
-  ): StoreWithActions<TState, TMap, TAction>;
-
-  function store<TState, TStoreActions extends Action = TAction>(
-    childName: string,
-    initial: TState,
-    reducerOrMap: Reducer<TState, TStoreActions> | ReducerMap<TState>
-  ):
-    | MutableStore<TState, TStoreActions, TAction>
-    | StoreWithActions<TState, ReducerMap<TState>, TAction> {
+  ): MutableStore<TState, TStoreActions, TAction> {
     const fullName = `${name}.${childName}`;
 
-    // Check if it's a reducer map (object) or reducer function
-    if (isReducerMap(reducerOrMap)) {
-      // Reducer map: convert to reducer and create actions
-      const map = reducerOrMap as ReducerMap<TState>;
-      const reducer = createReducerFromMap<TState>(map);
-      const actions = createActionsFromMap<TState, typeof map>(map);
-
-      const newStore = createStore<TState, MapAction, TAction>(
-        fullName,
-        initial,
-        reducer,
-        getContext() as any,
-        handleChildDispatch
-      );
-      stores.add(newStore);
-
-      return [newStore, actions] as any;
-    }
-
-    // Traditional reducer function
     const newStore = createStore<TState, TStoreActions, TAction>(
       fullName,
       initial,
-      reducerOrMap as Reducer<TState, TStoreActions>,
+      reducer,
       getContext() as any,
       handleChildDispatch
     );

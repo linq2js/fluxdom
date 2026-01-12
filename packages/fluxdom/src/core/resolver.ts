@@ -1,4 +1,4 @@
-import { Action, Domain, ModuleDef, ResolveModule } from "../types";
+import { Action, Domain, ModuleDef } from "../types";
 
 export type Resolver = {
   get<TModule, TAction extends Action>(

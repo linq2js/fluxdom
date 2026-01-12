@@ -152,27 +152,30 @@ auth.root === app; // true
 
 ### Stores — Where State Lives
 
-Every store has a name, initial state, and a reducer. You can use either the classic reducer function or the **reducer map** syntax for less boilerplate.
+Every store has a name, initial state, and a reducer. You can use either `actions()` for less boilerplate or the classic reducer function for more control.
 
-#### Option 1: Reducer Map (Recommended)
+#### Option 1: actions() (Recommended)
 
-Pass an object of handler functions. Returns `[store, actions]` tuple with auto-generated action creators:
+Use `actions()` to define handlers and auto-generate action creators. The returned object has action creators plus a `.reducer` property:
 
 ```ts
-const [todoStore, todoActions] = todos.store(
-  "list",
-  { items: [] },
-  {
-    add: (state, text: string) => ({
-      items: [...state.items, { id: Date.now(), text, done: false }],
-    }),
-    toggle: (state, id: number) => ({
-      items: state.items.map((t) =>
-        t.id === id ? { ...t, done: !t.done } : t
-      ),
-    }),
-  }
-);
+import { domain, actions } from "fluxdom";
+
+const app = domain("app");
+const todos = app.domain("todos");
+
+// Define actions with their handlers
+const todoActions = actions({
+  add: (state: TodoState, text: string) => ({
+    items: [...state.items, { id: Date.now(), text, done: false }],
+  }),
+  toggle: (state: TodoState, id: number) => ({
+    items: state.items.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
+  }),
+});
+
+// Create store with the reducer
+const todoStore = todos.store("list", { items: [] }, todoActions.reducer);
 
 // Action creators have .type property matching the handler key
 todoActions.add.type; // "add"
@@ -191,6 +194,36 @@ todoStore.onDispatch(({ action, source }) => {
   console.log(`[${source}] ${action.type}`); // "[app.todos.list] add"
 });
 ```
+
+**Optional: Handle domain actions with second param:**
+
+```ts
+type AppAction = { type: "RESET_ALL" };
+const app = domain<AppAction>("app");
+
+const counterActions = actions(
+  {
+    increment: (state: number) => state + 1,
+  },
+  // Second param: reducer for domain-level actions
+  (state, action: AppAction) => {
+    if (action.type === "RESET_ALL") return 0;
+    return state;
+  }
+);
+
+const store = app.store("counter", 10, counterActions.reducer);
+store.dispatch(counterActions.increment()); // 11
+app.dispatch({ type: "RESET_ALL" }); // 0
+```
+
+**Benefits of `actions()`:**
+
+- 🎯 **Type-safe** — Action creators have correct argument types
+- 🔗 **Domain-aware** — Can handle domain-level actions
+- 📦 **Composable** — Combine store + domain reducers
+- 🔍 **Matchable** — Use `.type` property in listeners
+- ♻️ **Reusable** — Same actions can be used with multiple stores
 
 #### Option 2: Classic Reducer Function
 
@@ -741,17 +774,24 @@ counterStore.dispatch({ type: "INC" });
 
 ---
 
-#### `domain.store(name, initial, reducerMap)`
+### `actions(handlers, domainReducer?)`
 
-Create a state store with a reducer map. Returns a `[store, actions]` tuple with auto-generated action creators.
+Create action creators and a reducer from handler functions. Optionally accepts a second reducer to handle domain-level actions.
 
 ```ts
-const [counterStore, counterActions] = app.store("counter", 0, {
-  increment: (state) => state + 1,
-  decrement: (state) => state - 1,
-  add: (state, amount: number) => state + amount,
-  set: (_state, value: number) => value,
+import { domain, actions } from "fluxdom";
+
+const app = domain("app");
+
+// Create action creators with .reducer property
+const counterActions = actions({
+  increment: (state: number) => state + 1,
+  decrement: (state: number) => state - 1,
+  add: (state: number, amount: number) => state + amount,
 });
+
+// Create store with the reducer
+const counterStore = app.store("counter", 0, counterActions.reducer);
 
 // Action creators have .type property matching handler key
 counterActions.increment.type; // "increment"
@@ -764,22 +804,55 @@ counterActions.add(5); // { type: "add", args: [5] }
 // Dispatch actions
 counterStore.dispatch(counterActions.increment());
 counterStore.dispatch(counterActions.add(10));
+```
 
-// Multiple arguments supported
-const [posStore, posActions] = app.store(
-  "position",
-  { x: 0, y: 0 },
+**With domain reducer (second param):**
+
+```ts
+type AppAction = { type: "RESET_ALL" } | { type: "SET_ALL"; value: number };
+const app = domain<AppAction>("app");
+
+const counterActions = actions(
   {
-    setPosition: (_state, x: number, y: number) => ({ x, y }),
-    move: (state, dx: number, dy: number) => ({
-      x: state.x + dx,
-      y: state.y + dy,
-    }),
+    increment: (state: number) => state + 1,
+  },
+  // Second param: handles domain-level actions
+  (state, action: AppAction) => {
+    switch (action.type) {
+      case "RESET_ALL":
+        return 0;
+      case "SET_ALL":
+        return action.value;
+      default:
+        return state;
+    }
   }
 );
 
-posStore.dispatch(posActions.setPosition(10, 20));
-posStore.dispatch(posActions.move(5, -3));
+const store = app.store("counter", 10, counterActions.reducer);
+store.dispatch(counterActions.increment()); // 11
+app.dispatch({ type: "RESET_ALL" }); // 0
+app.dispatch({ type: "SET_ALL", value: 100 }); // 100
+```
+
+**Reusable actions:**
+
+```ts
+// Define once, use with multiple stores
+const counterActions = actions({
+  increment: (state: number) => state + 1,
+  reset: () => 0,
+});
+
+const app1 = domain("app1");
+const app2 = domain("app2");
+
+// Same actions, different stores
+const store1 = app1.store("counter", 0, counterActions.reducer);
+const store2 = app2.store("counter", 100, counterActions.reducer);
+
+store1.dispatch(counterActions.increment()); // store1: 1
+store2.dispatch(counterActions.increment()); // store2: 101
 ```
 
 **Action type matching:**
@@ -1075,7 +1148,7 @@ unsub();
 
 #### `domain.use(plugin)`
 
-Extend the domain with a plugin. Returns the enhanced domain.
+Extend the domain with a plugin. Returns the enhanced domain or the plugin's return value.
 
 ```ts
 // Add helper methods
@@ -1486,12 +1559,13 @@ import type {
   ReducerMap,
   Handler,
   ActionsFromMap,
-  StoreWithActions,
+  ActionsWithReducer,
 } from "fluxdom";
 
 // Functions
 import {
   domain,
+  actions, // Create action creators + reducer
   module,
   derived,
   emitter,
@@ -1502,7 +1576,7 @@ import {
   deepEqual,
   resolveEquality,
 
-  // Reducer map utilities
+  // Low-level action utilities
   createActionCreator,
   createReducerFromMap,
   createActionsFromMap,
@@ -1597,25 +1671,23 @@ function App() {
 import { domain } from "fluxdom";
 
 const app = domain("app");
-export const counterStore = app.store("counter", 0, (state, action) => {
-  switch (action.type) {
-    case "INC":
-      return state + 1;
-    case "DEC":
-      return state - 1;
-    default:
-      return state;
-  }
+
+const counterActions = app.actions({
+  increment: (state: number) => state + 1,
+  decrement: (state: number) => state - 1,
 });
+
+export const counterStore = app.store("counter", 0, counterActions.reducer);
+export { counterActions };
 
 // App.tsx
 import { useSelector } from "fluxdom/react";
-import { counterStore } from "./store";
+import { counterStore, counterActions } from "./store";
 
 function Counter() {
   const count = useSelector(counterStore);
   return (
-    <button onClick={() => counterStore.dispatch({ type: "INC" })}>
+    <button onClick={() => counterStore.dispatch(counterActions.increment())}>
       {count}
     </button>
   );

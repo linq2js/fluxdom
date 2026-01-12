@@ -12,7 +12,7 @@ export interface Action {
 }
 
 /** A pure function that transitions state based on an action. */
-export type Reducer<TState, TAction extends Action> = (
+export type Reducer<TState, TAction extends Action = Action> = (
   state: TState,
   action: TAction
 ) => TState;
@@ -43,6 +43,38 @@ export type Handler<TState, TArgs extends any[] = []> = (
 export type ReducerMap<TState> = {
   [key: string]: Handler<TState, any[]>;
 };
+
+/**
+ * Infer state type from a reducer map.
+ */
+export type InferState<TMap> = TMap extends {
+  [key: string]: Handler<infer S, any[]>;
+}
+  ? S
+  : never;
+
+/**
+ * Infer state type from a Store.
+ */
+export type StateOf<T> = T extends Store<infer S> ? S : never;
+
+/**
+ * Infer action type from a Domain or MutableStore.
+ *
+ * @example
+ * ```ts
+ * const app = domain<{ type: "INC" } | { type: "DEC" }>("app");
+ * type AppAction = ActionOf<typeof app>; // { type: "INC" } | { type: "DEC" }
+ *
+ * const store = app.store("counter", 0, reducer);
+ * type StoreAction = ActionOf<typeof store>; // inferred from store
+ * ```
+ */
+export type ActionOf<T> = T extends Domain<infer A>
+  ? A
+  : T extends MutableStore<any, infer A, any>
+  ? A
+  : never;
 
 /**
  * Action creator function with a `.type` property.
@@ -85,17 +117,30 @@ export type MapActionsUnion<TState, TMap extends ReducerMap<TState>> = {
 }[keyof TMap];
 
 /**
- * Return type when using reducer map: tuple of [store, actions].
- * The store's dispatch is type-safe - only accepts valid actions from the map.
+ * Actions object with attached reducer.
+ * Created by `domain.actions()` - contains action creators and a reducer property.
+ *
+ * @example
+ * ```ts
+ * const counterActions = app.actions({
+ *   inc: (state: number) => state + 1,
+ *   add: (state: number, n: number) => state + n,
+ * });
+ *
+ * counterActions.inc();       // { type: "inc", args: [] }
+ * counterActions.reducer;     // (state, action) => newState
+ * ```
  */
-export type StoreWithActions<
+export type ActionsWithReducer<
   TState,
   TMap extends ReducerMap<TState>,
   TDomainAction extends Action = Action
-> = [
-  MutableStore<TState, MapActionsUnion<TState, TMap>, TDomainAction>,
-  ActionsFromMap<TState, TMap>
-];
+> = ActionsFromMap<TState, TMap> & {
+  readonly reducer: Reducer<
+    TState,
+    MapActionsUnion<TState, TMap> | TDomainAction
+  >;
+};
 
 // --- Thunk & Dispatch System ---
 
@@ -155,37 +200,30 @@ export interface Domain<TDomainAction extends Action = Action>
    * Create a State Store within this domain.
    * The store will automatically receive actions dispatched to this Domain.
    *
-   * @overload With reducer function - returns MutableStore
+   * @example
+   * ```ts
+   * // With custom reducer
+   * const store = app.store("counter", 0, (state, action) => {
+   *   switch (action.type) {
+   *     case "increment": return state + 1;
+   *     default: return state;
+   *   }
+   * });
+   *
+   * // With actions() helper
+   * const counterActions = actions({
+   *   increment: (state: number) => state + 1,
+   *   add: (state: number, n: number) => state + n,
+   * });
+   * const store = app.store("counter", 0, counterActions.reducer);
+   * store.dispatch(counterActions.increment());
+   * ```
    */
   store<TState, TStoreActions extends Action = TDomainAction>(
     name: string,
     initial: TState,
     reducer: Reducer<TState, TStoreActions>
   ): MutableStore<TState, TStoreActions, TDomainAction>;
-
-  /**
-   * Create a State Store with a reducer map.
-   * Returns a tuple of [store, actions] where actions are auto-generated.
-   *
-   * @overload With reducer map - returns [store, actions] tuple
-   *
-   * @example
-   * ```ts
-   * const [store, actions] = app.store("counter", 0, {
-   *   increment: (state) => state + 1,
-   *   add: (state, amount: number) => state + amount,
-   * });
-   *
-   * actions.increment.type; // "app.counter.increment"
-   * store.dispatch(actions.increment());
-   * store.dispatch(actions.add(5));
-   * ```
-   */
-  store<TState, TMap extends ReducerMap<TState>>(
-    name: string,
-    initial: TState,
-    reducerMap: TMap
-  ): StoreWithActions<TState, TMap, TDomainAction>;
 
   /** Create a sub-domain (child) that inherits context from this domain. */
   domain<TSubDomainAction extends Action = never>(
@@ -302,7 +340,32 @@ export interface DerivedStore<TState> extends Store<TState> {
 
 export type Plugin<S, R = void> = (source: S) => R extends void ? void : R;
 
+/**
+ * Pipeable interface for extensibility via plugins.
+ *
+ * The `use()` method allows extending objects with new methods
+ * or using them as context to create something.
+ */
 export interface Pipeable {
+  /**
+   * Apply a plugin function to this object.
+   *
+   * @param plugin - Function that receives this object and returns:
+   *   - `void` — Original object is returned
+   *   - Object with methods — Merged with original object
+   *   - Any value — Returned as-is
+   *
+   * @example
+   * ```ts
+   * // Extension pattern: add new methods
+   * const enhanced = store.use((s) => ({
+   *   ...s,
+   *   reset: () => s.dispatch({ type: "RESET" }),
+   * }));
+   *
+   * enhanced.reset(); // Available
+   * ```
+   */
   use<P = void>(plugin: Plugin<this, P>): P extends void ? this : this & P;
 }
 
