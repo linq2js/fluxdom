@@ -159,7 +159,7 @@ Every store has a name, initial state, and a reducer. You can use either the cla
 Pass an object of handler functions. Returns `[store, actions]` tuple with auto-generated action creators:
 
 ```ts
-const [todoStore, todo] = todos.store(
+const [todoStore, todoActions] = todos.store(
   "list",
   { items: [] },
   {
@@ -174,17 +174,22 @@ const [todoStore, todo] = todos.store(
   }
 );
 
-// Action creators have namespaced .type property
-todo.add.type; // "app.todos.list.add"
-todo.toggle.type; // "app.todos.list.toggle"
+// Action creators have .type property matching the handler key
+todoActions.add.type; // "add"
+todoActions.toggle.type; // "toggle"
 
 // Actions return { type, args } objects
-todo.add("Buy milk"); // { type: "app.todos.list.add", args: ["Buy milk"] }
-todo.toggle(123); // { type: "app.todos.list.toggle", args: [123] }
+todoActions.add("Buy milk"); // { type: "add", args: ["Buy milk"] }
+todoActions.toggle(123); // { type: "toggle", args: [123] }
 
 // Dispatch actions
-todoStore.dispatch(todo.add("Buy milk"));
-todoStore.dispatch(todo.toggle(123));
+todoStore.dispatch(todoActions.add("Buy milk"));
+todoStore.dispatch(todoActions.toggle(123));
+
+// In listeners, `source` provides the store path
+todoStore.onDispatch(({ action, source }) => {
+  console.log(`[${source}] ${action.type}`); // "[app.todos.list] add"
+});
 ```
 
 #### Option 2: Classic Reducer Function
@@ -741,27 +746,27 @@ counterStore.dispatch({ type: "INC" });
 Create a state store with a reducer map. Returns a `[store, actions]` tuple with auto-generated action creators.
 
 ```ts
-const [counterStore, counter] = app.store("counter", 0, {
+const [counterStore, counterActions] = app.store("counter", 0, {
   increment: (state) => state + 1,
   decrement: (state) => state - 1,
   add: (state, amount: number) => state + amount,
   set: (_state, value: number) => value,
 });
 
-// Action creators have .type property with full namespace
-counter.increment.type; // "app.counter.increment"
-counter.add.type; // "app.counter.add"
+// Action creators have .type property matching handler key
+counterActions.increment.type; // "increment"
+counterActions.add.type; // "add"
 
 // Actions return { type, args } objects
-counter.increment(); // { type: "app.counter.increment", args: [] }
-counter.add(5); // { type: "app.counter.add", args: [5] }
+counterActions.increment(); // { type: "increment", args: [] }
+counterActions.add(5); // { type: "add", args: [5] }
 
 // Dispatch actions
-counterStore.dispatch(counter.increment());
-counterStore.dispatch(counter.add(10));
+counterStore.dispatch(counterActions.increment());
+counterStore.dispatch(counterActions.add(10));
 
 // Multiple arguments supported
-const [posStore, pos] = app.store(
+const [posStore, posActions] = app.store(
   "position",
   { x: 0, y: 0 },
   {
@@ -773,24 +778,24 @@ const [posStore, pos] = app.store(
   }
 );
 
-posStore.dispatch(pos.setPosition(10, 20));
-posStore.dispatch(pos.move(5, -3));
+posStore.dispatch(posActions.setPosition(10, 20));
+posStore.dispatch(posActions.move(5, -3));
 ```
 
 **Action type matching:**
 
 ```ts
 // Use .type for action matching in listeners
-counterStore.onDispatch(({ action }) => {
-  if (action.type === counter.increment.type) {
-    console.log("Incremented!");
+counterStore.onDispatch(({ action, source }) => {
+  if (action.type === counterActions.increment.type) {
+    console.log(`[${source}] Incremented!`); // "[app.counter] Incremented!"
   }
 });
 
 // Or at domain level
-app.onAnyDispatch(({ action }) => {
-  if (action.type === counter.add.type) {
-    console.log("Added:", action.args[0]);
+app.onAnyDispatch(({ action, source }) => {
+  if (action.type === counterActions.add.type) {
+    console.log(`[${source}] Added:`, action.args[0]);
   }
 });
 ```
@@ -803,7 +808,7 @@ State can be any type — primitives, objects, arrays.
 
 ```ts
 // Primitive state (number, string, boolean, etc.)
-const [counter, c] = app.store("counter", 0, {
+const [counterStore, counterActions] = app.store("counter", 0, {
   inc: (s) => s + 1,
 });
 
@@ -814,7 +819,7 @@ interface UserState {
   loggedIn: boolean;
 }
 
-const [userStore, user] = app.store<UserState>(
+const [userStore, userActions] = app.store<UserState>(
   "user",
   { name: "", email: "", loggedIn: false },
   {

@@ -27,8 +27,9 @@ describe("Reducer Map", () => {
         decrement: (state) => state - 1,
       });
 
-      expect(actions.increment.type).toBe("app.counter.increment");
-      expect(actions.decrement.type).toBe("app.counter.decrement");
+      // Type is just the handler key (no path prefix)
+      expect(actions.increment.type).toBe("increment");
+      expect(actions.decrement.type).toBe("decrement");
     });
 
     it("should create action objects with type and args", () => {
@@ -39,13 +40,14 @@ describe("Reducer Map", () => {
         add: (state, amount: number) => state + amount,
       });
 
+      // Type is just the handler key
       expect(actions.increment()).toEqual({
-        type: "app.counter.increment",
+        type: "increment",
         args: [],
       });
 
       expect(actions.add(5)).toEqual({
-        type: "app.counter.add",
+        type: "add",
         args: [5],
       });
     });
@@ -115,17 +117,30 @@ describe("Reducer Map", () => {
   });
 
   describe("nested domains", () => {
-    it("should namespace action types with full domain path", () => {
+    it("should have action types as handler keys (source provides path)", () => {
       const app = domain("app");
       const auth = app.domain("auth");
 
-      const [_store, actions] = auth.store("user", null, {
+      const [store, actions] = auth.store("user", null, {
         login: (_state, data: { id: number }) => data,
         logout: () => null,
       });
 
-      expect(actions.login.type).toBe("app.auth.user.login");
-      expect(actions.logout.type).toBe("app.auth.user.logout");
+      // Type is just the handler key
+      expect(actions.login.type).toBe("login");
+      expect(actions.logout.type).toBe("logout");
+
+      // Source provides the full path in listeners
+      const listener = vi.fn();
+      store.onDispatch(listener);
+      store.dispatch(actions.login({ id: 1 }));
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: { type: "login", args: [{ id: 1 }] },
+          source: "app.auth.user", // Full path in source
+        })
+      );
     });
 
     it("should work with deeply nested domains", () => {
@@ -139,7 +154,8 @@ describe("Reducer Map", () => {
         set: (_state, theme: string) => theme,
       });
 
-      expect(actions.setDark.type).toBe("app.features.settings.theme.setDark");
+      // Type is just the handler key
+      expect(actions.setDark.type).toBe("setDark");
 
       store.dispatch(actions.setDark());
       expect(store.getState()).toBe("dark");
@@ -186,7 +202,7 @@ describe("Reducer Map", () => {
   });
 
   describe("onDispatch notifications", () => {
-    it("should receive action with type and args", () => {
+    it("should receive action with type and args, source has full path", () => {
       const app = domain("app");
 
       const [store, actions] = app.store("counter", 0, {
@@ -200,8 +216,8 @@ describe("Reducer Map", () => {
 
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: { type: "app.counter.add", args: [42] },
-          source: "app.counter",
+          action: { type: "add", args: [42] }, // Type is just handler key
+          source: "app.counter", // Source provides full path
         })
       );
     });
