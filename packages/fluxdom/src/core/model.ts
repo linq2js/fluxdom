@@ -129,8 +129,10 @@ export function createActionContext<TState, TDomainAction extends Action>(
   const fallbackHandlers: ModelFallbackHandler<TState, TDomainAction>[] = [];
 
   const ctx: ModelActionContext<TState, TDomainAction> = {
-    reset: () => initial,
-    set: (_, value: TState) => value,
+    reducers: {
+      reset: () => initial,
+      set: (_, value: TState) => value,
+    },
     fallback: (handler: ModelFallbackHandler<TState, TDomainAction>) => {
       fallbackHandlers.push(handler);
     },

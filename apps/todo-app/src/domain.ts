@@ -204,10 +204,10 @@ const initialState: TodoState = {
  * const state = todoStore.getState();
  * ```
  */
-export const todoStore = appDomain.store<TodoState>(
-  "todos",
-  initialState,
-  produce((draft, action) => {
+export const todoStore = appDomain.store<TodoState, TodoAction>({
+  name: "todos",
+  initial: initialState,
+  reducer: produce((draft: TodoState, action: TodoAction) => {
     switch (action.type) {
       case "LOAD_START":
         draft.loading = true;
@@ -235,13 +235,13 @@ export const todoStore = appDomain.store<TodoState>(
         break;
 
       case "TOGGLE": {
-        const todo = draft.items.find((t) => t.id === action.id);
+        const todo = draft.items.find((t: Todo) => t.id === action.id);
         if (todo) todo.completed = !todo.completed;
         break;
       }
 
       case "REMOVE": {
-        const index = draft.items.findIndex((t) => t.id === action.id);
+        const index = draft.items.findIndex((t: Todo) => t.id === action.id);
         if (index !== -1) draft.items.splice(index, 1);
         break;
       }
@@ -251,5 +251,5 @@ export const todoStore = appDomain.store<TodoState>(
         draft.error = action.error;
         break;
     }
-  })
-);
+  }),
+});

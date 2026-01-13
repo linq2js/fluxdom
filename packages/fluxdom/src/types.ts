@@ -756,6 +756,16 @@ export type ModelFallbackHandler<TState, TDomainAction extends Action> = (
 ) => TState;
 
 /**
+ * Built-in reducer helpers for common patterns.
+ */
+export interface ModelReducerHelpers<TState> {
+  /** Returns initial state (reset to default) */
+  reset: (state: TState) => TState;
+  /** Sets state to the given value */
+  set: (state: TState, value: TState) => TState;
+}
+
+/**
  * Context provided to action builder in model().
  * Contains helper functions for common reducer patterns.
  */
@@ -763,10 +773,8 @@ export interface ModelActionContext<
   TState,
   TDomainAction extends Action = Action
 > {
-  /** Returns initial state (reset to default) */
-  reset: (state: TState) => TState;
-  /** Sets state to the given value */
-  set: (state: TState, value: TState) => TState;
+  /** Built-in reducer helpers (reset, set) */
+  reducers: ModelReducerHelpers<TState>;
   /**
    * Add a fallback handler for domain actions not handled by explicit actions.
    * Can be called multiple times - handlers are chained in order.

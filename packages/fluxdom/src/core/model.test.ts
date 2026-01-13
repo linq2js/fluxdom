@@ -79,7 +79,7 @@ describe("model()", () => {
   });
 
   describe("context helpers", () => {
-    it("should provide ctx.reset helper", () => {
+    it("should provide ctx.reducers.reset helper", () => {
       const app = domain("app");
 
       const counter = app.model({
@@ -87,7 +87,7 @@ describe("model()", () => {
         initial: 100,
         actions: (ctx) => ({
           increment: (state) => state + 1,
-          reset: ctx.reset,
+          reset: ctx.reducers.reset,
         }),
       });
 
@@ -99,7 +99,7 @@ describe("model()", () => {
       expect(counter.getState()).toBe(100);
     });
 
-    it("should provide ctx.set helper", () => {
+    it("should provide ctx.reducers.set helper", () => {
       const app = domain("app");
 
       const counter = app.model({
@@ -107,7 +107,7 @@ describe("model()", () => {
         initial: 0,
         actions: (ctx) => ({
           increment: (state) => state + 1,
-          set: ctx.set,
+          set: ctx.reducers.set,
         }),
       });
 
@@ -627,7 +627,7 @@ describe("model()", () => {
             ...state,
             filter,
           }),
-          reset: ctx.reset,
+          reset: ctx.reducers.reset,
         }),
       });
 

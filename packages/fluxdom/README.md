@@ -712,8 +712,8 @@ const counter = app.model({
     increment: (state) => state + 1,
     decrement: (state) => state - 1,
     add: (state, amount: number) => state + amount,
-    reset: ctx.reset, // Built-in helper
-    set: ctx.set, // Built-in helper
+    reset: ctx.reducers.reset, // Built-in reducer helper
+    set: ctx.reducers.set, // Built-in reducer helper
   }),
 });
 
@@ -743,7 +743,7 @@ const todos = app.model({
   actions: (ctx) => ({
     setLoading: (state, loading: boolean) => ({ ...state, loading }),
     setItems: (state, items: Todo[]) => ({ ...state, items, loading: false }),
-    reset: ctx.reset,
+    reset: ctx.reducers.reset,
   }),
   thunks: (ctx) => ({
     // ctx.actions gives you type-safe action creators
@@ -1220,8 +1220,10 @@ interface ModelConfig<TState, TActionMap, TThunkMap> {
 }
 
 interface ModelActionContext<TState> {
-  reset: (state: TState) => TState; // Returns initial state
-  set: (state: TState, value: TState) => TState; // Returns the new value
+  reducers: {
+    reset: (state: TState) => TState; // Returns initial state
+    set: (state: TState, value: TState) => TState; // Returns the new value
+  };
   fallback: (handler: (state: TState, action: DomainAction) => TState) => void;
 }
 
@@ -1238,8 +1240,8 @@ const counter = app.model({
   actions: (ctx) => ({
     increment: (state) => state + 1,
     add: (state, n: number) => state + n,
-    reset: ctx.reset,
-    set: ctx.set,
+    reset: ctx.reducers.reset,
+    set: ctx.reducers.set,
   }),
   thunks: (ctx) => ({
     incrementAsync: async ({ dispatch }) => {
