@@ -1,6 +1,6 @@
 {
   "name": "fluxdom",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -19,9 +19,13 @@
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
     "test": "vitest run",
-    "publish:patch": "node scripts/publish.js patch",
-    "publish:minor": "node scripts/publish.js minor",
-    "publish:major": "node scripts/publish.js major"
+    "prepublish:patch": "node scripts/publish.js pre patch",
+    "prepublish:minor": "node scripts/publish.js pre minor",
+    "prepublish:major": "node scripts/publish.js pre major",
+    "postpublish": "node scripts/publish.js post",
+    "release:patch": "node scripts/publish.js full patch",
+    "release:minor": "node scripts/publish.js full minor",
+    "release:major": "node scripts/publish.js full major"
   },
   "peerDependencies": {
     "react": ">=16.8.0"
