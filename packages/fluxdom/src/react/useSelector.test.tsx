@@ -7,9 +7,13 @@ import { wrappers } from "../strictModeTest";
 describe.each(wrappers)("useSelector", ({ renderHook }) => {
   it("should return selected state", () => {
     const d = domain("test");
-    const store = d.store("count", { value: 0 }, (state, action) => {
-      if (action.type === "INC") return { value: state.value + 1 };
-      return state;
+    const store = d.store({
+      name: "count",
+      initial: { value: 0 },
+      reducer: (state, action) => {
+        if (action.type === "INC") return { value: state.value + 1 };
+        return state;
+      },
     });
 
     const { result } = renderHook(() => useSelector(store, (s) => s.value));
@@ -25,9 +29,13 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should return full state when no selector is provided", () => {
     const d = domain("test");
-    const store = d.store("count", { value: 0 }, (state, action) => {
-      if (action.type === "INC") return { value: state.value + 1 };
-      return state;
+    const store = d.store({
+      name: "count",
+      initial: { value: 0 },
+      reducer: (state, action) => {
+        if (action.type === "INC") return { value: state.value + 1 };
+        return state;
+      },
     });
 
     const { result } = renderHook(() => useSelector(store));
@@ -41,9 +49,13 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should support custom equality to prevent updates", () => {
     const d = domain("test");
-    const store = d.store("data", { items: [1, 2] }, (state, action) => {
-      if (action.type === "UPDATE") return { ...state };
-      return state;
+    const store = d.store({
+      name: "data",
+      initial: { items: [1, 2] },
+      reducer: (state, action) => {
+        if (action.type === "UPDATE") return { ...state };
+        return state;
+      },
     });
 
     const selectorSpy = vi.fn((state: { items: number[] }) => ({
@@ -66,9 +78,13 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should update when equality check fails", () => {
     const d = domain("test");
-    const store = d.store("data", { count: 0 }, (state, action) => {
-      if (action.type === "INC") return { count: state.count + 1 };
-      return state;
+    const store = d.store({
+      name: "data",
+      initial: { count: 0 },
+      reducer: (state, action) => {
+        if (action.type === "INC") return { count: state.count + 1 };
+        return state;
+      },
     });
 
     const { result } = renderHook(() =>
@@ -89,12 +105,16 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should support multiple stores", () => {
     const d = domain("test");
-    const store1 = d.store("s1", { val: 1 }, (s, a) =>
-      a.type === "INC1" ? { val: s.val + 1 } : s
-    );
-    const store2 = d.store("s2", { val: 10 }, (s, a) =>
-      a.type === "INC2" ? { val: s.val + 1 } : s
-    );
+    const store1 = d.store({
+      name: "s1",
+      initial: { val: 1 },
+      reducer: (s, a) => (a.type === "INC1" ? { val: s.val + 1 } : s),
+    });
+    const store2 = d.store({
+      name: "s2",
+      initial: { val: 10 },
+      reducer: (s, a) => (a.type === "INC2" ? { val: s.val + 1 } : s),
+    });
 
     const { result } = renderHook(() =>
       useSelector([store1, store2], (s1, s2) => s1.val + s2.val)
@@ -111,15 +131,15 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should support shallow equality", () => {
     const d = domain("test");
-    const store = d.store(
-      "user",
-      { name: "Alice", age: 30 },
-      (state, action) => {
+    const store = d.store({
+      name: "user",
+      initial: { name: "Alice", age: 30 },
+      reducer: (state, action) => {
         if (action.type === "BIRTHDAY") return { ...state, age: state.age + 1 };
         if (action.type === "NOOP") return { ...state }; // New ref, same content
         return state;
-      }
-    );
+      },
+    });
 
     const { result, rerender } = renderHook(() =>
       useSelector(store, (s) => ({ name: s.name }), "shallow")
@@ -138,7 +158,11 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should clean up subscriptions on unmount", () => {
     const d = domain("test");
-    const store = d.store("count", 0, (s, a) => (a.type === "INC" ? s + 1 : s));
+    const store = d.store({
+      name: "count",
+      initial: 0,
+      reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+    });
 
     const { unmount } = renderHook(() => useSelector(store, (s) => s));
 
@@ -155,7 +179,11 @@ describe.each(wrappers)("useSelector", ({ renderHook }) => {
 
   it("should handle selector that returns primitive", () => {
     const d = domain("test");
-    const store = d.store("data", { a: 1, b: 2 }, (s) => s);
+    const store = d.store({
+      name: "data",
+      initial: { a: 1, b: 2 },
+      reducer: (s) => s,
+    });
 
     const { result } = renderHook(() => useSelector(store, (s) => s.a + s.b));
 

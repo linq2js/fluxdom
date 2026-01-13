@@ -12,7 +12,14 @@ import {
   Store,
   Equality,
   ModuleDef,
+  ModelActionContext,
+  ModelActionMap,
+  ModelThunkMap,
+  ModelWithMethods,
+  MapActionsUnion,
+  StoreConfig,
 } from "../types";
+import { buildModel } from "./model";
 
 import { withUse } from "../withUse";
 import { emitter } from "../emitter";
@@ -137,10 +144,9 @@ function createDomain<TAction extends Action>(
   };
 
   function store<TState, TStoreActions extends Action = TAction>(
-    childName: string,
-    initial: TState,
-    reducer: Reducer<TState, TStoreActions>
+    config: StoreConfig<TState, TStoreActions>
   ): MutableStore<TState, TStoreActions, TAction> {
+    const { name: childName, initial, reducer, equals } = config;
     const fullName = `${name}.${childName}`;
 
     const newStore = createStore<TState, TStoreActions, TAction>(
@@ -148,7 +154,8 @@ function createDomain<TAction extends Action>(
       initial,
       reducer,
       getContext() as any,
-      handleChildDispatch
+      handleChildDispatch,
+      equals
     );
     stores.add(newStore);
     return newStore;
@@ -168,8 +175,38 @@ function createDomain<TAction extends Action>(
     return sub;
   };
 
+  // --- Model Factory ---
+  const model = <
+    TState,
+    TActionMap extends ModelActionMap<TState>,
+    TThunkMap extends ModelThunkMap<
+      TState,
+      MapActionsUnion<TState, TActionMap>,
+      TAction
+    > = Record<string, never>
+  >(config: {
+    name: string;
+    initial: TState;
+    actions: (ctx: ModelActionContext<TState>) => TActionMap;
+    thunks?: () => TThunkMap;
+    equals?: Equality<TState>;
+  }): ModelWithMethods<TState, TActionMap, TThunkMap, TAction> => {
+    // Create a store factory that delegates to our store() method
+    const createStoreForModel = (
+      storeName: string,
+      initialState: TState,
+      reducer: Reducer<TState, any>,
+      equals?: Equality<TState>
+    ) => store({ name: storeName, initial: initialState, reducer, equals });
+
+    return buildModel<TState, TActionMap, TThunkMap, TAction>(
+      createStoreForModel,
+      config
+    );
+  };
+
   // Construct the object
-  const domainObject: Domain<TAction> = withUse({
+  const domainObject = withUse({
     name,
     root: null as any, // Placeholder, set below
     dispatch,
@@ -180,8 +217,9 @@ function createDomain<TAction extends Action>(
     store,
     derived,
     domain: createSubDomain,
+    model,
     _receiveDomainAction,
-  });
+  }) as Domain<TAction>;
 
   // Verify root logic
   // If root passed, use it. If not, this is root.

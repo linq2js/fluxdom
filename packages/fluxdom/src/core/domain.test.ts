@@ -5,18 +5,26 @@ describe("FluxDom Core", () => {
   describe("Store", () => {
     it("should initialize with state", () => {
       const d = domain<any>("test");
-      const store = d.store("count", 0, (s, a: { type: "INC" }) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s, a: { type: "INC" }) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
       expect(store.getState()).toBe(0);
     });
 
     it("should update state on dispatch", () => {
       const d = domain<any>("test");
-      const store = d.store("count", 0, (s, a: { type: "INC" }) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s, a: { type: "INC" }) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
       store.dispatch({ type: "INC" });
       expect(store.getState()).toBe(1);
@@ -24,7 +32,11 @@ describe("FluxDom Core", () => {
 
     it("should notify listeners on change", () => {
       const d = domain<any>("test");
-      const store = d.store("count", 0, (s, _a: { type: "INC" }) => s + 1);
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s, _a: { type: "INC" }) => s + 1,
+      });
       const listener = vi.fn();
       store.onChange(listener);
 
@@ -34,9 +46,13 @@ describe("FluxDom Core", () => {
 
     it("should not notify listeners when state is unchanged", () => {
       const d = domain<any>("test");
-      const store = d.store("count", 0, (s, a: { type: "INC" | "NOOP" }) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s, a: { type: "INC" | "NOOP" }) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
       const listener = vi.fn();
       store.onChange(listener);
@@ -47,7 +63,11 @@ describe("FluxDom Core", () => {
 
     it("should allow unsubscribe from onChange", () => {
       const d = domain<any>("test");
-      const store = d.store("count", 0, (s) => s + 1);
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s) => s + 1,
+      });
       const listener = vi.fn();
       const unsub = store.onChange(listener);
 
@@ -58,9 +78,13 @@ describe("FluxDom Core", () => {
 
     it("should call onDispatch listeners with action and context", () => {
       const d = domain<any>("test");
-      const store = d.store("count", 0, (s, a: { type: "INC" }) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s, a: { type: "INC" }) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -82,14 +106,14 @@ describe("FluxDom Core", () => {
 
     it("should support thunks at store level", () => {
       const d = domain<any>("test");
-      const store = d.store(
-        "count",
-        0,
-        (s, a: { type: "SET"; val: number }) => {
+      const store = d.store({
+        name: "count",
+        initial: 0,
+        reducer: (s, a: { type: "SET"; val: number }) => {
           if (a.type === "SET") return a.val;
           return s;
-        }
-      );
+        },
+      });
 
       const thunk = ({ dispatch, getState }: any) => {
         const current = getState();
@@ -101,14 +125,43 @@ describe("FluxDom Core", () => {
       expect(result).toBe("thunk-done");
       expect(store.getState()).toBe(10);
     });
+
+    it("should support equals option", () => {
+      const d = domain<any>("test");
+      const listener = vi.fn();
+
+      const store = d.store({
+        name: "user",
+        initial: { id: 1, name: "John" },
+        reducer: (s, a: { type: "SET_NAME"; name: string }) => {
+          if (a.type === "SET_NAME") return { ...s, name: a.name };
+          return s;
+        },
+        equals: "shallow",
+      });
+
+      store.onChange(listener);
+
+      // Same values, should not notify with shallow equality
+      store.dispatch({ type: "SET_NAME", name: "John" });
+      expect(listener).not.toHaveBeenCalled();
+
+      // Different value, should notify
+      store.dispatch({ type: "SET_NAME", name: "Jane" });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("Domain & Dispatch", () => {
     it("should broadcast domain actions to stores", () => {
       const d = domain<{ type: "RESET" }>("root");
-      const store = d.store("count", 10, (s, a) => {
-        if (a.type === "RESET") return 0;
-        return s;
+      const store = d.store({
+        name: "count",
+        initial: 10,
+        reducer: (s, a) => {
+          if (a.type === "RESET") return 0;
+          return s;
+        },
       });
 
       d.dispatch({ type: "RESET" });
@@ -121,7 +174,7 @@ describe("FluxDom Core", () => {
       const listener = vi.fn();
       d.onDispatch(listener);
 
-      const store = d.store("child", 0, (s) => s);
+      const store = d.store({ name: "child", initial: 0, reducer: (s) => s });
 
       // Thunk inside store context
       const thunk = ({ domain }: any) => {
@@ -139,9 +192,13 @@ describe("FluxDom Core", () => {
 
     it("should support thunks at domain level", () => {
       const d = domain<{ type: "SET"; value: number }>("test");
-      const store = d.store("val", 0, (s, a) => {
-        if (a.type === "SET") return a.value;
-        return s;
+      const store = d.store({
+        name: "val",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "SET") return a.value;
+          return s;
+        },
       });
 
       const thunk = ({ dispatch }: any) => {
@@ -167,7 +224,7 @@ describe("FluxDom Core", () => {
     it("should listen to ALL dispatches with onAnyDispatch", () => {
       const root = domain("root");
       const auth = root.domain("auth");
-      const userStore = auth.store("user", 0, (s) => s);
+      const userStore = auth.store({ name: "user", initial: 0, reducer: (s) => s });
 
       const listener = vi.fn();
       root.onAnyDispatch(listener);
@@ -233,10 +290,14 @@ describe("FluxDom Core", () => {
       const parent = domain<ParentAction>("parent");
       const child = parent.domain<ChildAction>("child");
 
-      const childStore = child.store("data", 0, (s, a) => {
-        if (a.type === "PARENT_ACTION") return s + 1;
-        if (a.type === "CHILD_ACTION") return s + 10;
-        return s;
+      const childStore = child.store({
+        name: "data",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "PARENT_ACTION") return s + 1;
+          if (a.type === "CHILD_ACTION") return s + 10;
+          return s;
+        },
       });
 
       // Parent action should reach child store
@@ -253,12 +314,16 @@ describe("FluxDom Core", () => {
       const child1 = parent.domain("child1");
       const child2 = parent.domain("child2");
 
-      const store1 = child1.store("a", 10, (s, a) =>
-        a.type === "RESET" ? 0 : s
-      );
-      const store2 = child2.store("b", 20, (s, a) =>
-        a.type === "RESET" ? 0 : s
-      );
+      const store1 = child1.store({
+        name: "a",
+        initial: 10,
+        reducer: (s, a) => (a.type === "RESET" ? 0 : s),
+      });
+      const store2 = child2.store({
+        name: "b",
+        initial: 20,
+        reducer: (s, a) => (a.type === "RESET" ? 0 : s),
+      });
 
       parent.dispatch({ type: "RESET" });
       expect(store1.getState()).toBe(0);
@@ -372,8 +437,8 @@ describe("FluxDom Core", () => {
   describe("Derived Stores", () => {
     it("should combine multiple stores", () => {
       const d = domain("test");
-      const s1 = d.store("a", 1, (s) => s);
-      const s2 = d.store("b", 2, (s) => s);
+      const s1 = d.store({ name: "a", initial: 1, reducer: (s) => s });
+      const s2 = d.store({ name: "b", initial: 2, reducer: (s) => s });
 
       const sum = derived("sum", [s1, s2], (a, b) => a + b);
       expect(sum.getState()).toBe(3);
@@ -381,8 +446,8 @@ describe("FluxDom Core", () => {
 
     it("should support domain-scoped derived stores", () => {
       const d = domain("math");
-      const s1 = d.store("a", 10, (s) => s);
-      const s2 = d.store("b", 20, (s) => s);
+      const s1 = d.store({ name: "a", initial: 10, reducer: (s) => s });
+      const s2 = d.store({ name: "b", initial: 20, reducer: (s) => s });
 
       // Create via domain
       const sum = d.derived("sum", [s1, s2], (a, b) => a + b);
@@ -405,9 +470,11 @@ describe("FluxDom Core", () => {
 
     it("should update when dependencies change", () => {
       const d = domain<{ type: "INC" }>("test");
-      const store = d.store("count", 1, (s, a) =>
-        a.type === "INC" ? s + 1 : s
-      );
+      const store = d.store({
+        name: "count",
+        initial: 1,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
       const doubled = derived("doubled", [store], (count) => count * 2);
 
       expect(doubled.getState()).toBe(2);
@@ -418,9 +485,11 @@ describe("FluxDom Core", () => {
 
     it("should notify listeners when derived value changes", () => {
       const d = domain<{ type: "INC" }>("test");
-      const store = d.store("count", 1, (s, a) =>
-        a.type === "INC" ? s + 1 : s
-      );
+      const store = d.store({
+        name: "count",
+        initial: 1,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
       const doubled = derived("doubled", [store], (count) => count * 2);
 
       const listener = vi.fn();
@@ -432,8 +501,8 @@ describe("FluxDom Core", () => {
 
     it("should track dependencies", () => {
       const d = domain("test");
-      const s1 = d.store("a", 1, (s) => s);
-      const s2 = d.store("b", 2, (s) => s);
+      const s1 = d.store({ name: "a", initial: 1, reducer: (s) => s });
+      const s2 = d.store({ name: "b", initial: 2, reducer: (s) => s });
 
       const sum = derived("sum", [s1, s2], (a, b) => a + b);
       expect(sum.dependencies).toEqual([s1, s2]);
@@ -441,9 +510,11 @@ describe("FluxDom Core", () => {
 
     it("should unsubscribe from onChange", () => {
       const d = domain<{ type: "INC" }>("test");
-      const store = d.store("count", 1, (s, a) =>
-        a.type === "INC" ? s + 1 : s
-      );
+      const store = d.store({
+        name: "count",
+        initial: 1,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
       const doubled = derived("doubled", [store], (count) => count * 2);
 
       const listener = vi.fn();
@@ -456,7 +527,11 @@ describe("FluxDom Core", () => {
 
     it("should not notify when derived value is unchanged", () => {
       const d = domain<{ type: "NOOP" }>("test");
-      const store = d.store("count", 1, (s, _a) => s); // Always returns same state
+      const store = d.store({
+        name: "count",
+        initial: 1,
+        reducer: (s, _a) => s, // Always returns same state
+      });
       const doubled = derived("doubled", [store], (count) => count * 2);
 
       const listener = vi.fn();
@@ -469,7 +544,7 @@ describe("FluxDom Core", () => {
     describe("use() plugin", () => {
       it("should return original store when plugin returns falsy", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
         const derived1 = derived("d", [s], (a) => a);
 
         const result = derived1.use(() => undefined);
@@ -478,7 +553,7 @@ describe("FluxDom Core", () => {
 
       it("should return result directly if it already has use()", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
         const derived1 = derived("d", [s], (a) => a);
 
         const chainable = withUse({ custom: true });
@@ -488,7 +563,7 @@ describe("FluxDom Core", () => {
 
       it("should wrap result with use() if object without use()", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
         const derived1 = derived("d", [s], (a) => a);
 
         const result = derived1.use(() => ({ custom: "value" }));
@@ -498,7 +573,7 @@ describe("FluxDom Core", () => {
 
       it("should wrap function result with use()", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
         const derived1 = derived("d", [s], (a) => a);
 
         const fn = () => "hello";
@@ -509,7 +584,7 @@ describe("FluxDom Core", () => {
 
       it("should return primitive values directly", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
         const derived1 = derived("d", [s], (a) => a);
 
         const result = derived1.use(() => 42);
@@ -520,7 +595,7 @@ describe("FluxDom Core", () => {
     describe("Lazy Evaluation", () => {
       it("should NOT compute initial state until read", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
 
         const selector = vi.fn((a) => a * 2);
         const derived1 = derived("d", [s], selector);
@@ -532,7 +607,11 @@ describe("FluxDom Core", () => {
 
       it("should NOT compute on dependency change if not read", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s, a) => (a.type === "INC" ? s + 1 : s));
+        const s = d.store({
+          name: "a",
+          initial: 1,
+          reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+        });
 
         const selector = vi.fn((a) => a * 2);
         const derived1 = derived("d", [s], selector);
@@ -554,7 +633,7 @@ describe("FluxDom Core", () => {
 
       it("should use cached value if not dirty", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s) => s);
+        const s = d.store({ name: "a", initial: 1, reducer: (s) => s });
 
         const selector = vi.fn((a) => a * 2);
         const derived1 = derived("d", [s], selector);
@@ -568,7 +647,11 @@ describe("FluxDom Core", () => {
 
       it("should compute eagerly when observed", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s, a) => (a.type === "INC" ? s + 1 : s));
+        const s = d.store({
+          name: "a",
+          initial: 1,
+          reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+        });
 
         const selector = vi.fn((a) => a * 2);
         const derived1 = derived("d", [s], selector);
@@ -589,7 +672,11 @@ describe("FluxDom Core", () => {
 
       it("should NOT notify listeners if computed value is same (after init)", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s, a) => (a.type === "INC" ? s + 1 : s));
+        const s = d.store({
+          name: "a",
+          initial: 1,
+          reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+        });
 
         // Always return 10
         const derived1 = derived("d", [s], () => 10);
@@ -608,7 +695,11 @@ describe("FluxDom Core", () => {
 
       it("should support custom equality", () => {
         const d = domain("test");
-        const s = d.store("a", 1, (s, a) => (a.type === "INC" ? s + 1 : s));
+        const s = d.store({
+          name: "a",
+          initial: 1,
+          reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+        });
 
         // Returns new array reference, but content is same
         const derived1 = derived(
@@ -646,7 +737,7 @@ describe("Spread Safety", () => {
     expect(typeof enhanced.store).toBe("function");
 
     // Should actually work
-    const s = enhanced.store("test", 0, (s) => s);
+    const s = enhanced.store({ name: "test", initial: 0, reducer: (s) => s });
     expect(s.name).toBe("root.test");
   });
 });

@@ -23,15 +23,19 @@ import { domain } from "fluxdom";
 const app = domain("app");
 
 // 2. Create a store — state can be anything (primitives, objects, arrays)
-const counterStore = app.store("counter", 0, (state, action) => {
-  switch (action.type) {
-    case "INC":
-      return state + 1;
-    case "DEC":
-      return state - 1;
-    default:
-      return state;
-  }
+const counterStore = app.store({
+  name: "counter",
+  initial: 0,
+  reducer: (state, action) => {
+    switch (action.type) {
+      case "INC":
+        return state + 1;
+      case "DEC":
+        return state - 1;
+      default:
+        return state;
+    }
+  },
 });
 
 // 3. Dispatch — make things happen
@@ -47,13 +51,17 @@ FluxDom is framework-agnostic. Use it anywhere — Node.js, browser, or any Java
 import { domain } from "fluxdom";
 
 const app = domain("app");
-const counterStore = app.store("counter", 0, (state, action) => {
-  switch (action.type) {
-    case "INC":
-      return state + 1;
-    default:
-      return state;
-  }
+const counterStore = app.store({
+  name: "counter",
+  initial: 0,
+  reducer: (state, action) => {
+    switch (action.type) {
+      case "INC":
+        return state + 1;
+      default:
+        return state;
+    }
+  },
 });
 
 // Subscribe to changes
@@ -201,7 +209,11 @@ const counterReducer = actions.reducer(
 );
 
 // Create store
-const counterStore = app.store("counter", 0, counterReducer);
+const counterStore = app.store({
+  name: "counter",
+  initial: 0,
+  reducer: counterReducer,
+});
 
 // Dispatch
 counterStore.dispatch(counterActions.increment());
@@ -240,7 +252,7 @@ const reducer = actions.reducer(
   }
 );
 
-const store = app.store("counter", 10, reducer);
+const store = app.store({ name: "counter", initial: 10, reducer });
 store.dispatch(counterActions.increment()); // 11
 app.dispatch({ type: "RESET_ALL" }); // 0
 ```
@@ -681,6 +693,124 @@ events.on(
 
 ---
 
+### Models — Stores with Bound Methods
+
+Models are a higher-level abstraction that combines stores with bound action and thunk methods. Instead of manually dispatching actions, you call methods directly on the model.
+
+**The key insight: Models ARE stores.** They extend `MutableStore`, so they work everywhere stores work — `useSelector`, `derived()`, plugins, etc.
+
+```ts
+import { domain } from "fluxdom";
+
+const app = domain("app");
+
+// Create a model with bound methods
+const counter = app.model({
+  name: "counter",
+  initial: 0,
+  actions: (ctx) => ({
+    increment: (state) => state + 1,
+    decrement: (state) => state - 1,
+    add: (state, amount: number) => state + amount,
+    reset: ctx.reset, // Built-in helper
+    set: ctx.set, // Built-in helper
+  }),
+});
+
+// Call methods directly — no dispatch needed!
+counter.increment();
+counter.add(5);
+counter.reset();
+
+// Model IS a store — use it anywhere
+counter.getState(); // 0
+counter.onChange(() => {}); // Subscribe
+counter.dispatch({ type: "increment", args: [] }); // Still works!
+
+// Works with useSelector (because model IS a store)
+const count = useSelector(counter);
+
+// Works with derived()
+const doubled = app.derived("doubled", [counter], (n) => n * 2);
+```
+
+**With async thunks:**
+
+```ts
+const todos = app.model({
+  name: "todos",
+  initial: { items: [], loading: false },
+  actions: (ctx) => ({
+    setLoading: (state, loading: boolean) => ({ ...state, loading }),
+    setItems: (state, items: Todo[]) => ({ ...state, items, loading: false }),
+    reset: ctx.reset,
+  }),
+  thunks: (ctx) => ({
+    // ctx.actions gives you type-safe action creators
+    // ctx.initial gives you the initial state
+    fetchTodos: async ({ dispatch, domain }) => {
+      dispatch(ctx.actions.setLoading(true));
+      const api = domain.get(ApiModule);
+      const items = await api.fetchTodos();
+      dispatch(ctx.actions.setItems(items));
+      return items;
+    },
+    resetToInitial: ({ dispatch }) => {
+      dispatch(ctx.actions.reset());
+    },
+  }),
+});
+
+// Call thunks directly
+await todos.fetchTodos();
+todos.resetToInitial();
+```
+
+**Handle domain actions with `ctx.fallback()`:**
+
+```ts
+type AppAction = { type: "RESET_ALL" } | { type: "SET_THEME"; theme: string };
+const app = domain<AppAction>("app");
+
+const counter = app.model({
+  name: "counter",
+  initial: 0,
+  actions: (ctx) => {
+    // Register fallback handlers for domain actions
+    ctx.fallback((state, action) => {
+      if (action.type === "RESET_ALL") return 0;
+      return state;
+    });
+
+    // Can call fallback multiple times to chain handlers
+    ctx.fallback((state, action) => {
+      console.log("Received domain action:", action.type);
+      return state;
+    });
+
+    return {
+      increment: (state) => state + 1,
+    };
+  },
+});
+
+// Domain action resets the counter
+app.dispatch({ type: "RESET_ALL" });
+```
+
+**With custom equality:**
+
+```ts
+const user = app.model({
+  name: "user",
+  initial: { id: 0, name: "", profile: { bio: "" } },
+  actions: () => ({
+    setName: (state, name: string) => ({ ...state, name }),
+  }),
+  equals: "shallow", // Only notify if top-level properties change
+});
+```
+
 ### Immer Integration — Mutable Syntax, Immutable Results
 
 Tired of spread operators? Wrap your reducer with Immer's `produce`:
@@ -716,7 +846,7 @@ const reducer = actions.reducer(
   })
 );
 
-const store = app.store("todos", { items: [] }, reducer);
+const store = app.store({ name: "todos", initial: { items: [] }, reducer });
 store.dispatch(todoActions.add("Buy milk"));
 ```
 
@@ -823,15 +953,24 @@ app.root === app; // true (root references itself)
 
 ---
 
-#### `domain.store(name, initial, reducer)`
+#### `domain.store(config)`
 
 Create a state store with a reducer function. Returns a `MutableStore`.
 
 ```ts
-const counterStore = app.store<number, CounterAction>(
-  "counter",
-  0,
-  (state, action) => {
+interface StoreConfig<TState, TAction> {
+  name: string;
+  initial: TState;
+  reducer: (state: TState, action: TAction) => TState;
+  equals?: Equality<TState>; // Optional equality for change detection
+}
+```
+
+```ts
+const counterStore = app.store({
+  name: "counter",
+  initial: 0,
+  reducer: (state, action) => {
     switch (action.type) {
       case "INC":
         return state + 1;
@@ -840,10 +979,21 @@ const counterStore = app.store<number, CounterAction>(
       default:
         return state;
     }
-  }
-);
+  },
+});
 
 counterStore.dispatch({ type: "INC" });
+```
+
+**With custom equality:**
+
+```ts
+const settingsStore = app.store({
+  name: "settings",
+  initial: { theme: "dark", fontSize: 14 },
+  reducer: settingsReducer,
+  equals: "shallow", // Only notify if properties change
+});
 ```
 
 ---
@@ -922,7 +1072,7 @@ const reducer = actions.reducer(counterActions, (state: number, action) => {
   }
 });
 
-const store = app.store("counter", 0, reducer);
+const store = app.store({ name: "counter", initial: 0, reducer });
 ```
 
 **Combine multiple action sources:**
@@ -982,7 +1132,7 @@ const counterActions = actions({ inc: true });
 const counterReducer = actions.reducer(counterActions, (s: number, a) =>
   a.type === "inc" ? s + 1 : s
 );
-const counterStore = app.store("counter", 0, counterReducer);
+const counterStore = app.store({ name: "counter", initial: 0, reducer: counterReducer });
 
 // Object state
 interface UserState {
@@ -1007,7 +1157,11 @@ const userReducer = actions.reducer(userActions, (state: UserState, action) => {
   }
 });
 
-const userStore = app.store("user", { name: "", email: "", loggedIn: false }, userReducer);
+const userStore = app.store({
+  name: "user",
+  initial: { name: "", email: "", loggedIn: false },
+  reducer: userReducer,
+});
 
 // Store name is namespaced
 console.log(counterStore.name); // "app.counter"
@@ -1052,6 +1206,80 @@ const userStore = app.store(
 
 ---
 
+#### `domain.model(config)`
+
+Create a model — a store with bound action and thunk methods. Models ARE stores, so they work with `useSelector`, `derived()`, and any store-based API.
+
+```ts
+interface ModelConfig<TState, TActionMap, TThunkMap> {
+  name: string;
+  initial: TState;
+  actions: (ctx: ModelActionContext<TState>) => TActionMap;
+  thunks?: (ctx: ModelThunkContext<TState, TActionMap>) => TThunkMap;
+  equals?: Equality<TState>;
+}
+
+interface ModelActionContext<TState> {
+  reset: (state: TState) => TState; // Returns initial state
+  set: (state: TState, value: TState) => TState; // Returns the new value
+  fallback: (handler: (state: TState, action: DomainAction) => TState) => void;
+}
+
+interface ModelThunkContext<TState, TActionMap> {
+  actions: ActionCreators<TActionMap>; // Type-safe action creators
+  initial: TState; // The initial state value
+}
+```
+
+```ts
+const counter = app.model({
+  name: "counter",
+  initial: 0,
+  actions: (ctx) => ({
+    increment: (state) => state + 1,
+    add: (state, n: number) => state + n,
+    reset: ctx.reset,
+    set: ctx.set,
+  }),
+  thunks: (ctx) => ({
+    incrementAsync: async ({ dispatch }) => {
+      await delay(100);
+      dispatch(ctx.actions.increment());
+    },
+  }),
+  equals: "strict", // Optional equality strategy
+});
+
+// Bound action methods
+counter.increment();
+counter.add(5);
+counter.reset();
+counter.set(100);
+
+// Bound thunk methods
+await counter.incrementAsync();
+
+// Store properties (model IS a store)
+counter.name; // "app.counter"
+counter.getState(); // number
+counter.onChange(fn); // Subscribe
+counter.onDispatch(fn); // Listen to actions
+counter.dispatch(action); // Manual dispatch
+counter.use(plugin); // Extend with plugin
+```
+
+**Using with React:**
+
+```tsx
+// Model works directly with useSelector
+function Counter() {
+  const count = useSelector(counter);
+  return <button onClick={() => counter.increment()}>{count}</button>;
+}
+```
+
+---
+
 #### `domain.domain(name)`
 
 Create a child domain that inherits modules from its parent.
@@ -1077,8 +1305,16 @@ api === sameApi; // true
 Create a computed store that auto-updates when dependencies change.
 
 ```ts
-const priceStore = app.store("price", 100, priceReducer);
-const quantityStore = app.store("quantity", 2, quantityReducer);
+const priceStore = app.store({
+  name: "price",
+  initial: 100,
+  reducer: priceReducer,
+});
+const quantityStore = app.store({
+  name: "quantity",
+  initial: 2,
+  reducer: quantityReducer,
+});
 
 // Derived store computes from multiple stores
 const totalStore = app.derived(
@@ -1280,7 +1516,7 @@ A mutable store created via `domain.store()`.
 The store's namespaced identifier.
 
 ```ts
-const counterStore = app.store("counter", 0, reducer);
+const counterStore = app.store({ name: "counter", initial: 0, reducer });
 console.log(counterStore.name); // "app.counter"
 ```
 
@@ -1291,7 +1527,7 @@ console.log(counterStore.name); // "app.counter"
 Get the current state snapshot.
 
 ```ts
-const counterStore = app.store("counter", 0, reducer);
+const counterStore = app.store({ name: "counter", initial: 0, reducer });
 
 console.log(counterStore.getState()); // 0
 
@@ -1660,6 +1896,16 @@ import type {
 
   // Action creator types
   ActionCreator,
+
+  // Model types
+  Model,
+  ModelWithMethods,
+  ModelConfig,
+  ModelActionContext,
+  ModelThunkContext,
+
+  // Store config
+  StoreConfig,
 } from "fluxdom";
 
 // Functions
@@ -1782,7 +2028,7 @@ const reducer = actions.reducer(counterActions, (state: number, action) => {
   }
 });
 
-export const counterStore = app.store("counter", 0, reducer);
+export const counterStore = app.store({ name: "counter", initial: 0, reducer });
 
 // App.tsx
 import { useSelector } from "fluxdom/react";

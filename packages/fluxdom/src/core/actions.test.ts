@@ -195,7 +195,7 @@ describe("actions", () => {
         }
       );
 
-      const store = app.store("counter", 0, reducer);
+      const store = app.store({ name: "counter", initial: 0, reducer });
 
       store.dispatch(counterActions.increment());
       expect(store.getState()).toBe(1);
@@ -233,7 +233,7 @@ describe("actions", () => {
         }
       );
 
-      const store = app.store("counter", 0, reducer);
+      const store = app.store({ name: "counter", initial: 0, reducer });
 
       store.dispatch(counterActions.increment());
       expect(store.getState()).toBe(1);
@@ -289,6 +289,44 @@ describe("actions", () => {
 
       expect(reducer(0, counterActions.increment())).toBe(1);
       expect(reducer(0, counterActions.set(50))).toBe(50);
+    });
+  });
+
+  describe("ActionOf helper type", () => {
+    it("should extract action type from action creator map", () => {
+      const counterActions = actions({
+        increment: true,
+        add: (n: number) => n,
+      });
+
+      // Type test: ActionOf extracts union of all actions
+      type CounterAction = import("../types").ActionOf<typeof counterActions>;
+
+      // Runtime test: verify action shapes match
+      const incAction = counterActions.increment();
+      const addAction = counterActions.add(5);
+
+      // These should satisfy CounterAction type
+      const actions_: CounterAction[] = [incAction, addAction];
+      expect(actions_).toHaveLength(2);
+      expect(actions_[0]).toEqual({ type: "increment", payload: undefined });
+      expect(actions_[1]).toEqual({ type: "add", payload: 5 });
+    });
+
+    it("should extract action type from single action creator", () => {
+      const counterActions = actions({
+        increment: true,
+        add: (n: number) => n,
+      });
+
+      // Type test: ActionOf extracts single action type
+      type IncAction = import("../types").ActionOf<
+        typeof counterActions.increment
+      >;
+
+      // Runtime test
+      const action: IncAction = counterActions.increment();
+      expect(action).toEqual({ type: "increment", payload: undefined });
     });
   });
 });

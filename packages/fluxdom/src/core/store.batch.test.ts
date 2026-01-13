@@ -7,9 +7,13 @@ describe("Store with batching", () => {
   describe("without batch", () => {
     it("should notify immediately on each dispatch", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -25,9 +29,13 @@ describe("Store with batching", () => {
 
     it("should notify after each state change", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const states: number[] = [];
@@ -47,9 +55,13 @@ describe("Store with batching", () => {
   describe("with batch", () => {
     it("should batch notifications into single notification per store", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -68,9 +80,13 @@ describe("Store with batching", () => {
 
     it("should have final state available in notification", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const states: number[] = [];
@@ -90,9 +106,13 @@ describe("Store with batching", () => {
 
     it("should update state synchronously during batch", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const statesDuringBatch: number[] = [];
@@ -114,9 +134,13 @@ describe("Store with batching", () => {
 
     it("should not notify listeners during batch", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       let notifiedDuringBatch = false;
@@ -140,8 +164,16 @@ describe("Store with batching", () => {
   describe("batch with multiple stores", () => {
     it("should batch notifications per store (one notification each)", () => {
       const d = domain<any>("test");
-      const store1 = d.store("a", 0, (s, a) => (a.type === "INC" ? s + 1 : s));
-      const store2 = d.store("b", 0, (s, a) => (a.type === "INC" ? s + 1 : s));
+      const store1 = d.store({
+        name: "a",
+        initial: 0,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
+      const store2 = d.store({
+        name: "b",
+        initial: 0,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
 
       const listener1 = vi.fn();
       const listener2 = vi.fn();
@@ -164,8 +196,16 @@ describe("Store with batching", () => {
 
     it("should have all stores at final state when notifications fire", () => {
       const d = domain<any>("test");
-      const store1 = d.store("a", 0, (s, a) => (a.type === "INC" ? s + 1 : s));
-      const store2 = d.store("b", 10, (s, a) => (a.type === "INC" ? s + 1 : s));
+      const store1 = d.store({
+        name: "a",
+        initial: 0,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
+      const store2 = d.store({
+        name: "b",
+        initial: 10,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
 
       const capturedStates: { a: number; b: number }[] = [];
 
@@ -194,9 +234,13 @@ describe("Store with batching", () => {
   describe("nested batches", () => {
     it("should defer notifications until outermost batch completes", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -226,9 +270,13 @@ describe("Store with batching", () => {
 
     it("should have correct final state in nested batch scenario", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const states: number[] = [];
@@ -254,8 +302,16 @@ describe("Store with batching", () => {
   describe("batch with domain dispatch", () => {
     it("should batch domain-level dispatches", () => {
       const d = domain<{ type: "INC" }>("test");
-      const store1 = d.store("a", 0, (s, a) => (a.type === "INC" ? s + 1 : s));
-      const store2 = d.store("b", 0, (s, a) => (a.type === "INC" ? s + 1 : s));
+      const store1 = d.store({
+        name: "a",
+        initial: 0,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
+      const store2 = d.store({
+        name: "b",
+        initial: 0,
+        reducer: (s, a) => (a.type === "INC" ? s + 1 : s),
+      });
 
       const listener1 = vi.fn();
       const listener2 = vi.fn();
@@ -277,10 +333,14 @@ describe("Store with batching", () => {
 
     it("should batch store dispatches mixed with domain dispatches", () => {
       const d = domain<{ type: "INC" | "RESET" }>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        if (a.type === "RESET") return 0;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          if (a.type === "RESET") return 0;
+          return s;
+        },
       });
 
       const states: number[] = [];
@@ -301,9 +361,13 @@ describe("Store with batching", () => {
   describe("batch with thunks", () => {
     it("should batch notifications from thunk dispatches", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -324,10 +388,14 @@ describe("Store with batching", () => {
 
     it("should handle async batch (notifications fire when batch returns)", async () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        if (a.type === "SET") return a.value;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          if (a.type === "SET") return a.value;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -350,9 +418,13 @@ describe("Store with batching", () => {
 
     it("should batch only sync dispatches when async is interleaved", async () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -377,9 +449,13 @@ describe("Store with batching", () => {
   describe("batch error handling", () => {
     it("should still fire queued notifications if batch throws", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -400,9 +476,13 @@ describe("Store with batching", () => {
 
     it("should restore normal notification behavior after batch error", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -428,9 +508,13 @@ describe("Store with batching", () => {
   describe("batch with equality", () => {
     it("should not notify when state unchanged (with strict equality)", () => {
       const d = domain<any>("test");
-      const store = d.store("data", { value: 1 }, (s, a) => {
-        if (a.type === "SET") return { value: a.value };
-        return s;
+      const store = d.store({
+        name: "data",
+        initial: { value: 1 },
+        reducer: (s, a) => {
+          if (a.type === "SET") return { value: a.value };
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -505,9 +589,13 @@ describe("Store with batching", () => {
   describe("batch return value", () => {
     it("should return value from batch function", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const result = batch(() => {
@@ -521,9 +609,13 @@ describe("Store with batching", () => {
 
     it("should return async value from batch function", async () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const result = await batch(async () => {
@@ -540,9 +632,13 @@ describe("Store with batching", () => {
   describe("batch performance benefit", () => {
     it("should only notify once even with many dispatches", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const listener = vi.fn();
@@ -561,9 +657,13 @@ describe("Store with batching", () => {
 
     it("should allow reading intermediate state during batch", () => {
       const d = domain<any>("test");
-      const store = d.store("counter", 0, (s, a) => {
-        if (a.type === "INC") return s + 1;
-        return s;
+      const store = d.store({
+        name: "counter",
+        initial: 0,
+        reducer: (s, a) => {
+          if (a.type === "INC") return s + 1;
+          return s;
+        },
       });
 
       const intermediateStates: number[] = [];

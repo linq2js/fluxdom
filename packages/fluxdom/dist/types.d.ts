@@ -1,12 +1,6 @@
 /** Base Action interface. All actions must have a `type`. */
 export interface Action {
     type: string;
-    meta?: {
-        requestId?: string;
-        correlationId?: string;
-        source?: string;
-        [k: string]: any;
-    };
 }
 /** A pure function that transitions state based on an action. */
 export type Reducer<TState, TAction extends Action = Action> = (state: TState, action: TAction) => TState;
@@ -54,7 +48,11 @@ export type InferState<TMap> = TMap extends {
  */
 export type StateOf<T> = T extends Store<infer S> ? S : never;
 /**
- * Infer action type from a Domain or MutableStore.
+ * Infer action type from various sources:
+ * - Domain<TAction> -> TAction
+ * - MutableStore<any, TAction, any> -> TAction
+ * - ActionCreator -> { type, payload }
+ * - Record<string, ActionCreator> -> union of all actions
  *
  * @example
  * ```ts
@@ -63,9 +61,24 @@ export type StateOf<T> = T extends Store<infer S> ? S : never;
  *
  * const store = app.store("counter", 0, reducer);
  * type StoreAction = ActionOf<typeof store>; // inferred from store
+ *
+ * const counterActions = actions({ inc: true, add: (n: number) => n });
+ * type CounterAction = ActionOf<typeof counterActions>;
+ * // { type: "inc"; payload: void } | { type: "add"; payload: number }
+ *
+ * type IncAction = ActionOf<typeof counterActions.inc>;
+ * // { type: "inc"; payload: void }
  * ```
  */
-export type ActionOf<T> = T extends Domain<infer A> ? A : T extends MutableStore<any, infer A, any> ? A : never;
+export type ActionOf<T> = T extends Domain<infer A> ? A : T extends MutableStore<any, infer A, any> ? A : T extends {
+    type: infer TType;
+    (...args: any[]): infer TAction;
+} ? TAction extends {
+    type: TType;
+} ? TAction : never : T extends Record<string, {
+    type: string;
+    (...args: any[]): infer TAction;
+}> ? TAction : never;
 /**
  * Action creator function with a `.type` property.
  * Calling it returns an action with type matching the handler key.
@@ -247,11 +260,16 @@ export interface Domain<TDomainAction extends Action = Action> extends Pipeable 
      *   increment: (state: number) => state + 1,
      *   add: (state: number, n: number) => state + n,
      * });
-     * const store = app.store("counter", 0, counterActions.reducer);
+     * const store = app.store({
+     *   name: "counter",
+     *   initial: 0,
+     *   reducer: counterActions.reducer,
+     *   equals: "shallow", // optional
+     * });
      * store.dispatch(counterActions.increment());
      * ```
      */
-    store<TState, TStoreActions extends Action = TDomainAction>(name: string, initial: TState, reducer: Reducer<TState, TStoreActions>): MutableStore<TState, TStoreActions, TDomainAction>;
+    store<TState, TStoreActions extends Action = TDomainAction>(config: StoreConfig<TState, TStoreActions>): MutableStore<TState, TStoreActions, TDomainAction>;
     /** Create a sub-domain (child) that inherits context from this domain. */
     domain<TSubDomainAction extends Action = never>(name: string): Domain<TSubDomainAction | TDomainAction>;
     /**
@@ -261,6 +279,41 @@ export interface Domain<TDomainAction extends Action = Action> extends Pipeable 
     derived<TState, const TStores extends readonly Store<any>[]>(name: string, dependencies: TStores, selector: (...args: {
         [K in keyof TStores]: TStores[K] extends Store<infer T> ? T : never;
     }) => TState, equals?: Equality<TState>): DerivedStore<TState>;
+    /**
+     * Create a Model — a store with bound action methods.
+     *
+     * Models provide a cleaner API by binding actions and thunks directly
+     * to the returned object. Under the hood, it's still a store with
+     * proper action dispatch, so middleware and listeners work normally.
+     *
+     * @param config - Model configuration object
+     *
+     * @example
+     * ```ts
+     * const counter = app.model({
+     *   name: "counter",
+     *   initial: 0,
+     *   actions: (ctx) => ({
+     *     increment: (state) => state + 1,
+     *     add: (state, n: number) => state + n,
+     *     reset: ctx.reset,
+     *   }),
+     *   thunks: () => ({
+     *     fetchAndSet: (url: string) => async ({ dispatch }) => {
+     *       const value = await fetch(url).then(r => r.json());
+     *       dispatch({ type: "add", args: [value] });
+     *     },
+     *   }),
+     *   equals: "shallow", // optional equality strategy
+     * });
+     *
+     * counter.increment();     // bound action
+     * counter.add(5);          // bound action with arg
+     * counter.fetchAndSet(url); // bound thunk
+     * counter.getState();      // 6
+     * ```
+     */
+    model<TState, TActionMap extends ModelActionMap<TState>, TThunkMap extends ModelThunkMap<TState, MapActionsUnion<TState, TActionMap>, TDomainAction> = Record<string, never>>(config: ModelConfig<TState, TActionMap, TThunkMap, TDomainAction>): ModelWithMethods<TState, TActionMap, TThunkMap, TDomainAction>;
 }
 /**
  * A Module Definition.
@@ -502,5 +555,168 @@ export interface Emitter<T = void> {
     size(): number;
     /** Whether the emitter has been settled */
     settled(): boolean;
+}
+/**
+ * Fallback handler for domain actions in model().
+ */
+export type ModelFallbackHandler<TState, TDomainAction extends Action> = (state: TState, action: TDomainAction) => TState;
+/**
+ * Context provided to action builder in model().
+ * Contains helper functions for common reducer patterns.
+ */
+export interface ModelActionContext<TState, TDomainAction extends Action = Action> {
+    /** Returns initial state (reset to default) */
+    reset: (state: TState) => TState;
+    /** Sets state to the given value */
+    set: (state: TState, value: TState) => TState;
+    /**
+     * Add a fallback handler for domain actions not handled by explicit actions.
+     * Can be called multiple times - handlers are chained in order.
+     *
+     * @example
+     * ```ts
+     * app.model({
+     *   name: "counter",
+     *   initial: 0,
+     *   actions: (ctx) => {
+     *     ctx.fallback((state, action) => {
+     *       if (action.type === "RESET_ALL") return 0;
+     *       return state;
+     *     });
+     *     return {
+     *       increment: (state) => state + 1,
+     *     };
+     *   },
+     * });
+     * ```
+     */
+    fallback: (handler: ModelFallbackHandler<TState, TDomainAction>) => void;
+}
+/**
+ * Action handler for model() — sync reducer function.
+ */
+export type ModelActionHandler<TState, TArgs extends any[] = []> = (state: TState, ...args: TArgs) => TState;
+/**
+ * Map of action handlers returned by actionBuilder in model().
+ */
+export type ModelActionMap<TState> = Record<string, ModelActionHandler<TState, any[]>>;
+/**
+ * Infer action creator type from handler.
+ * Handler args (minus state) become action creator args.
+ */
+export type ModelBoundAction<THandler> = THandler extends (state: any) => any ? () => void : THandler extends (state: any, ...args: infer TArgs) => any ? (...args: TArgs) => void : never;
+/**
+ * Map all action handlers to bound action methods.
+ */
+export type ModelBoundActions<TMap extends ModelActionMap<any>> = {
+    [K in keyof TMap]: ModelBoundAction<TMap[K]>;
+};
+/**
+ * Infer action union from action map for internal dispatch typing.
+ */
+export type ModelActionUnion<TMap extends ModelActionMap<any>> = {
+    [K in keyof TMap]: TMap[K] extends ModelActionHandler<any, infer TArgs> ? {
+        type: K & string;
+        payload: TArgs extends [] ? void : TArgs extends [infer P] ? P : TArgs;
+    } : never;
+}[keyof TMap];
+/**
+ * Action creator generated from a model action handler.
+ * Maps handler args to action object with { type, args }.
+ */
+export type ModelActionCreator<TKey extends string, THandler> = THandler extends (state: any) => any ? () => {
+    type: TKey;
+    args: [];
+} : THandler extends (state: any, ...args: infer TArgs) => any ? (...args: TArgs) => {
+    type: TKey;
+    args: TArgs;
+} : never;
+/**
+ * Map action handlers to action creators.
+ */
+export type ModelActionCreators<TActionMap extends ModelActionMap<any>> = {
+    [K in keyof TActionMap & string]: ModelActionCreator<K, TActionMap[K]>;
+};
+/**
+ * Context provided to thunk builder in model().
+ * Contains action creators for type-safe dispatch within thunks.
+ */
+export interface ModelThunkContext<TState, TActionMap extends ModelActionMap<TState>> {
+    /** Type-safe action creators from the actions builder */
+    actions: ModelActionCreators<TActionMap>;
+    /** Initial state value (for reference, e.g., reset thunks) */
+    initial: TState;
+}
+/**
+ * Thunk creator for model() — function that returns a thunk.
+ */
+export type ModelThunkCreator<TState, TActions extends Action, TDomainAction extends Action, TArgs extends any[] = any[], TResult = any> = (...args: TArgs) => (ctx: StoreContext<TState, TActions, TDomainAction>) => TResult;
+/**
+ * Map of thunk creators returned by thunkBuilder in model().
+ */
+export type ModelThunkMap<TState, TActions extends Action, TDomainAction extends Action> = Record<string, ModelThunkCreator<TState, TActions, TDomainAction, any[], any>>;
+/**
+ * Infer bound thunk method type from thunk creator.
+ */
+export type ModelBoundThunk<TThunk> = TThunk extends (...args: infer TArgs) => (ctx: any) => infer TResult ? (...args: TArgs) => TResult : never;
+/**
+ * Map all thunk creators to bound thunk methods.
+ */
+export type ModelBoundThunks<TMap> = {
+    [K in keyof TMap]: ModelBoundThunk<TMap[K]>;
+};
+/**
+ * Model base type - extends MutableStore so it can be used anywhere a store is expected.
+ * This means models work with useSelector, derived(), and any store-based APIs.
+ */
+export type Model<TState, TActionMap extends ModelActionMap<TState>, _TThunkMap, TDomainAction extends Action> = MutableStore<TState, MapActionsUnion<TState, TActionMap>, TDomainAction>;
+/**
+ * Full model type with bound action and thunk methods.
+ * Model IS a MutableStore, plus bound action/thunk methods attached directly.
+ */
+export type ModelWithMethods<TState, TActionMap extends ModelActionMap<TState>, TThunkMap, TDomainAction extends Action> = Model<TState, TActionMap, TThunkMap, TDomainAction> & ModelBoundActions<TActionMap> & ModelBoundThunks<TThunkMap>;
+/**
+ * Configuration options for domain.store().
+ */
+export interface StoreConfig<TState, TAction extends Action = Action> {
+    /** Store name (will be prefixed with domain name) */
+    name: string;
+    /** Initial state value */
+    initial: TState;
+    /** Reducer function to handle actions */
+    reducer: Reducer<TState, TAction>;
+    /** Optional equality strategy for change detection */
+    equals?: Equality<TState>;
+}
+/**
+ * Configuration options for domain.model().
+ */
+export interface ModelConfig<TState, TActionMap extends ModelActionMap<TState>, TThunkMap extends ModelThunkMap<TState, MapActionsUnion<TState, TActionMap>, any>, TDomainAction extends Action = Action> {
+    /** Store name (will be prefixed with domain name) */
+    name: string;
+    /** Initial state value */
+    initial: TState;
+    /** Action builder function that receives context helpers and returns action handlers */
+    actions: (ctx: ModelActionContext<TState, TDomainAction>) => TActionMap;
+    /**
+     * Optional thunk builder function that returns thunk creators.
+     * Receives a context with type-safe action creators and initial state.
+     *
+     * @example
+     * ```ts
+     * thunks: (ctx) => ({
+     *   fetchAndSet: (url: string) => async ({ dispatch }) => {
+     *     const data = await fetch(url).then(r => r.json());
+     *     dispatch(ctx.actions.set(data)); // Type-safe!
+     *   },
+     *   reset: () => ({ dispatch }) => {
+     *     dispatch(ctx.actions.set(ctx.initial));
+     *   },
+     * })
+     * ```
+     */
+    thunks?: (ctx: ModelThunkContext<TState, TActionMap>) => TThunkMap;
+    /** Optional equality strategy for change detection */
+    equals?: Equality<TState>;
 }
 //# sourceMappingURL=types.d.ts.map
