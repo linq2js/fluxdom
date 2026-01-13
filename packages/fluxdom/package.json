@@ -14,26 +14,20 @@
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react.mjs",
       "require": "./dist/react.js"
-    },
-    "./immer": {
-      "types": "./dist/immer/index.d.ts",
-      "import": "./dist/immer.mjs",
-      "require": "./dist/immer.js"
     }
   },
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "publish:patch": "node scripts/publish.js patch",
+    "publish:minor": "node scripts/publish.js minor",
+    "publish:major": "node scripts/publish.js major"
   },
   "peerDependencies": {
-    "react": ">=16.8.0",
-    "immer": ">=9.0.0"
+    "react": ">=16.8.0"
   },
   "peerDependenciesMeta": {
     "react": {
-      "optional": true
-    },
-    "immer": {
       "optional": true
     }
   },
@@ -44,7 +38,6 @@
     "@types/react": "^19.2.5",
     "@vitest/coverage-v8": "^1.6.1",
     "happy-dom": "^20.1.0",
-    "immer": "^10.0.0",
     "typescript": "^5.0.0",
     "vite": "^5.0.0",
     "vitest": "^1.0.0"

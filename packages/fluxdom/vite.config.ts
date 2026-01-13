@@ -8,17 +8,15 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, "src/index.ts"),
         react: resolve(__dirname, "src/react/index.ts"),
-        immer: resolve(__dirname, "src/immer/index.ts"),
       },
       name: "FluxDom",
     },
     rollupOptions: {
-      external: ["react", "react-dom", "immer"],
+      external: ["react", "react-dom"],
       output: {
         globals: {
           react: "React",
           "react-dom": "ReactDOM",
-          immer: "immer",
         },
       },
     },

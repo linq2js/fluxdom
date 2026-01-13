@@ -45,11 +45,30 @@ export type ReducerMap<TState> = {
 };
 
 /**
+ * An Immer handler function that can mutate state or return new state.
+ * Used with fluxdom/immer where handlers can return void (mutate draft).
+ */
+export type ImmerHandler<TState, TArgs extends any[] = []> = (
+  state: TState,
+  ...args: TArgs
+) => TState | void;
+
+/**
+ * A map of Immer handler functions keyed by action name.
+ * Handlers can either mutate state (return void) or return new state.
+ */
+export type ImmerReducerMap<TState> = {
+  [key: string]: ImmerHandler<TState, any[]>;
+};
+
+/**
  * Infer state type from a reducer map.
  */
 export type InferState<TMap> = TMap extends {
   [key: string]: Handler<infer S, any[]>;
 }
+  ? S
+  : TMap extends { [key: string]: ImmerHandler<infer S, any[]> }
   ? S
   : never;
 
@@ -91,9 +110,15 @@ export interface ActionCreator<TKey extends string, TArgs extends any[]> {
 /**
  * Infer action creators from a reducer map.
  * Each handler becomes an action creator with matching parameter types.
+ * Works with both ReducerMap and ImmerReducerMap.
  */
-export type ActionsFromMap<TState, TMap extends ReducerMap<TState>> = {
+export type ActionsFromMap<
+  TState,
+  TMap extends ReducerMap<TState> | ImmerReducerMap<TState>
+> = {
   [K in keyof TMap]: TMap[K] extends Handler<TState, infer TArgs>
+    ? ActionCreator<K & string, TArgs>
+    : TMap[K] extends ImmerHandler<TState, infer TArgs>
     ? ActionCreator<K & string, TArgs>
     : never;
 };
@@ -101,6 +126,7 @@ export type ActionsFromMap<TState, TMap extends ReducerMap<TState>> = {
 /**
  * Generate a union of valid action types from a reducer map.
  * Each action has type matching the handler key and args matching the handler params.
+ * Works with both ReducerMap and ImmerReducerMap.
  *
  * @example
  * ```ts
@@ -110,19 +136,24 @@ export type ActionsFromMap<TState, TMap extends ReducerMap<TState>> = {
  * // | { type: "decrement"; args: [] }
  * ```
  */
-export type MapActionsUnion<TState, TMap extends ReducerMap<TState>> = {
+export type MapActionsUnion<
+  TState,
+  TMap extends ReducerMap<TState> | ImmerReducerMap<TState>
+> = {
   [K in keyof TMap]: TMap[K] extends Handler<TState, infer TArgs>
+    ? { type: K & string; args: TArgs }
+    : TMap[K] extends ImmerHandler<TState, infer TArgs>
     ? { type: K & string; args: TArgs }
     : never;
 }[keyof TMap];
 
 /**
  * Actions object with attached reducer.
- * Created by `domain.actions()` - contains action creators and a reducer property.
+ * Created by `actions()` - contains action creators and a reducer property.
  *
  * @example
  * ```ts
- * const counterActions = app.actions({
+ * const counterActions = actions({
  *   inc: (state: number) => state + 1,
  *   add: (state: number, n: number) => state + n,
  * });
@@ -134,13 +165,116 @@ export type MapActionsUnion<TState, TMap extends ReducerMap<TState>> = {
 export type ActionsWithReducer<
   TState,
   TMap extends ReducerMap<TState>,
-  TDomainAction extends Action = Action
+  TFallbackAction extends Action = Action
 > = ActionsFromMap<TState, TMap> & {
   readonly reducer: Reducer<
     TState,
-    MapActionsUnion<TState, TMap> | TDomainAction
+    MapActionsUnion<TState, TMap> | TFallbackAction
   >;
 };
+
+// --- Store Config Types ---
+
+/**
+ * A thunk creator is a function that takes arguments and returns a thunk.
+ * The thunk receives a context with getState and dispatch.
+ *
+ * @example
+ * ```ts
+ * // () => (ctx) => Promise<void>
+ * const fetchTodos: ThunkCreator<TodoContext, [], Promise<void>> =
+ *   () => async (ctx) => {
+ *     const todos = await api.getTodos();
+ *     ctx.dispatch(actions.setTodos(todos));
+ *   };
+ *
+ * // (text: string) => (ctx) => Promise<void>
+ * const addAsync: ThunkCreator<TodoContext, [string], Promise<void>> =
+ *   (text) => async (ctx) => {
+ *     await api.addTodo(text);
+ *     ctx.dispatch(actions.add(text));
+ *   };
+ * ```
+ */
+export type ThunkCreator<TContext, TArgs extends any[], TResult = void> = (
+  ...args: TArgs
+) => (context: TContext) => TResult;
+
+/**
+ * A map of thunk creators.
+ * Simplified type for better inference - context is loosely typed as `any`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ThunksMap<TContext> = Record<
+  string,
+  (...args: any[]) => (ctx: TContext) => any
+>;
+
+/**
+ * Input configuration for storeConfigs().
+ */
+export interface StoreConfigInput<
+  TState,
+  TReducers extends ReducerMap<TState>,
+  TThunks extends ThunksMap<
+    StoreContext<TState, MapActionsUnion<TState, TReducers>, TFallbackAction>
+  >,
+  TFallbackAction extends Action = Action
+> {
+  /** Initial state value */
+  initial: TState;
+  /** Map of reducer handlers */
+  reducers: TReducers;
+  /** Map of thunk creators (optional) */
+  thunks?: TThunks;
+  /** Fallback reducer for unhandled actions (optional) */
+  fallback?: Reducer<TState, TFallbackAction>;
+}
+
+/**
+ * Input configuration for Immer storeConfigs().
+ * Same as StoreConfigInput but allows handlers that return void (mutate draft).
+ */
+export interface ImmerStoreConfigInput<
+  TState,
+  TReducers extends ImmerReducerMap<TState>,
+  TThunks extends ThunksMap<
+    StoreContext<TState, MapActionsUnion<TState, TReducers>, TFallbackAction>
+  >,
+  TFallbackAction extends Action = Action
+> {
+  /** Initial state value */
+  initial: TState;
+  /** Map of reducer handlers (can mutate state or return new state) */
+  reducers: TReducers;
+  /** Map of thunk creators (optional) */
+  thunks?: TThunks;
+  /** Fallback reducer for unhandled actions (optional, can mutate state) */
+  fallback?: (state: TState, action: TFallbackAction) => TState | void;
+}
+
+/**
+ * Output from storeConfigs().
+ * Contains initial state, combined reducer, and action creators (reducers + thunks).
+ */
+export interface StoreConfigOutput<
+  TState,
+  TReducers extends ReducerMap<TState> | ImmerReducerMap<TState>,
+  TThunks extends ThunksMap<
+    StoreContext<TState, MapActionsUnion<TState, TReducers>, TFallbackAction>
+  >,
+  TFallbackAction extends Action = Action
+> {
+  /** Initial state value */
+  readonly initial: TState;
+  /** Combined reducer handling all reducer actions and fallback */
+  readonly reducer: Reducer<
+    TState,
+    MapActionsUnion<TState, TReducers> | TFallbackAction
+  >;
+  /** Action creators from reducers + thunk creators */
+  readonly actions: ActionsFromMap<TState, TReducers> & TThunks;
+}
 
 // --- Thunk & Dispatch System ---
 

@@ -1,18 +1,17 @@
-var H = Object.defineProperty;
-var I = (e, t, r) => t in e ? H(e, t, { enumerable: !0, configurable: !0, writable: !0, value: r }) : e[t] = r;
-var d = (e, t, r) => I(e, typeof t != "symbol" ? t + "" : t, r);
-import { a as nt, c as ot, d as st, b as it, i as ct } from "./actions-BvsKXo5m.mjs";
-function D(e) {
+var U = Object.defineProperty;
+var L = (e, t, r) => t in e ? U(e, t, { enumerable: !0, configurable: !0, writable: !0, value: r }) : e[t] = r;
+var d = (e, t, r) => L(e, typeof t != "symbol" ? t + "" : t, r);
+function O(e) {
   return Object.assign(e, {
     use(t) {
       const r = t(e);
-      return r ? typeof r == "object" || typeof r == "function" ? "use" in r ? r : D(r) : r : e;
+      return r ? typeof r == "object" || typeof r == "function" ? "use" in r ? r : O(r) : r : e;
     }
   });
 }
-const M = () => {
+const R = () => {
 };
-class U {
+class V {
   constructor(t) {
     /** Set of registered listeners */
     d(this, "_listeners");
@@ -23,32 +22,32 @@ class U {
     d(this, "size", () => this._listeners.size);
     d(this, "settled", () => this._isSettled);
     d(this, "on", (t, r) => {
-      let o;
+      let n;
       if (r === void 0)
-        o = Array.isArray(t) ? t : [t];
+        n = Array.isArray(t) ? t : [t];
       else {
         const s = t, i = Array.isArray(r) ? r : [r];
-        o = [
+        n = [
           (u) => {
             const h = s(u);
             if (h)
-              for (let m = 0; m < i.length; m++)
-                i[m](h.value);
+              for (let y = 0; y < i.length; y++)
+                i[y](h.value);
           }
         ];
       }
       if (this._isSettled) {
         const s = this._settledPayload;
-        for (let i = 0; i < o.length; i++)
-          o[i](s);
-        return M;
+        for (let i = 0; i < n.length; i++)
+          n[i](s);
+        return R;
       }
-      const n = this._listeners;
-      for (let s = 0; s < o.length; s++)
-        n.add(o[s]);
+      const o = this._listeners;
+      for (let s = 0; s < n.length; s++)
+        o.add(n[s]);
       return () => {
-        for (let s = 0; s < o.length; s++)
-          n.delete(o[s]);
+        for (let s = 0; s < n.length; s++)
+          o.delete(n[s]);
       };
     });
     d(this, "emit", (t) => {
@@ -73,11 +72,11 @@ class U {
      * Internal emit implementation.
      * Creates snapshot to handle modifications during iteration.
      */
-    d(this, "_doEmit", (t, r, o) => {
-      const n = this._listeners, s = n.size;
+    d(this, "_doEmit", (t, r, n) => {
+      const o = this._listeners, s = o.size;
       if (s === 0) return;
-      const i = Array.from(n);
-      if (r && n.clear(), o)
+      const i = Array.from(o);
+      if (r && o.clear(), n)
         for (let u = s - 1; u >= 0; u--)
           i[u](t);
       else
@@ -87,93 +86,93 @@ class U {
     this._listeners = new Set(t);
   }
 }
-function p(e) {
-  return new U(e);
+function v(e) {
+  return new V(e);
 }
-function L(e, t) {
+function G(e, t) {
   return Object.is(e, t);
 }
-function b(e, t, r = Object.is) {
+function D(e, t, r = Object.is) {
   if (Object.is(e, t)) return !0;
   if (typeof e != "object" || e === null || typeof t != "object" || t === null) return !1;
-  const o = Object.keys(e), n = Object.keys(t);
-  if (o.length !== n.length) return !1;
-  for (const s of o)
+  const n = Object.keys(e), o = Object.keys(t);
+  if (n.length !== o.length) return !1;
+  for (const s of n)
     if (!Object.prototype.hasOwnProperty.call(t, s) || !r(e[s], t[s])) return !1;
   return !0;
 }
-function N(e, t) {
-  return b(e, t, b);
+function I(e, t) {
+  return D(e, t, D);
 }
-function V(e, t) {
-  return b(e, t, N);
+function J(e, t) {
+  return D(e, t, I);
 }
-function O(e, t) {
+function k(e, t) {
   if (Object.is(e, t)) return !0;
   if (typeof e != "object" || e === null || typeof t != "object" || t === null)
     return !1;
   if (Array.isArray(e)) {
     if (!Array.isArray(t) || e.length !== t.length) return !1;
-    for (let n = 0; n < e.length; n++)
-      if (!O(e[n], t[n])) return !1;
+    for (let o = 0; o < e.length; o++)
+      if (!k(e[o], t[o])) return !1;
     return !0;
   }
   if (Array.isArray(t)) return !1;
-  const r = Object.keys(e), o = Object.keys(t);
-  if (r.length !== o.length) return !1;
-  for (const n of r)
-    if (!Object.prototype.hasOwnProperty.call(t, n) || !O(e[n], t[n]))
+  const r = Object.keys(e), n = Object.keys(t);
+  if (r.length !== n.length) return !1;
+  for (const o of r)
+    if (!Object.prototype.hasOwnProperty.call(t, o) || !k(e[o], t[o]))
       return !1;
   return !0;
 }
-function $(e) {
-  return !e || e === "strict" ? L : e === "shallow" ? b : e === "shallow2" ? N : e === "shallow3" ? V : e === "deep" ? O : e;
+function z(e) {
+  return !e || e === "strict" ? G : e === "shallow" ? D : e === "shallow2" ? I : e === "shallow3" ? J : e === "deep" ? k : e;
 }
-function Z(e) {
-  return $(e);
+function x(e) {
+  return z(e);
 }
-function F(e) {
+function N(e) {
   const t = e;
   let r = e;
   return Object.assign(
-    (...o) => r(...o),
+    (...n) => r(...n),
     {
       getOriginal: () => t,
       getCurrent: () => r,
-      setCurrent(o) {
-        r = o;
+      setCurrent(n) {
+        r = n;
       }
     }
   );
 }
-function G(e) {
+function K(e) {
   return typeof e == "function" && "getOriginal" in e && "getCurrent" in e && "setCurrent" in e;
 }
-function T(e, t, r) {
-  return e ? typeof t == "function" ? G(e.value) ? (e.value.setCurrent(t), [e.value, !0]) : [F(t), !1] : t && t instanceof Date ? e.value && e.value instanceof Date && t.getTime() === e.value.getTime() ? [e.value, !0] : [t, !1] : r(e.value, t) ? [e.value, !0] : [t, !1] : typeof t == "function" ? [F(t), !1] : [t, !1];
+function P(e, t, r) {
+  return e ? typeof t == "function" ? K(e.value) ? (e.value.setCurrent(t), [e.value, !0]) : [N(t), !1] : t && t instanceof Date ? e.value && e.value instanceof Date && t.getTime() === e.value.getTime() ? [e.value, !0] : [t, !1] : r(e.value, t) ? [e.value, !0] : [t, !1] : typeof t == "function" ? [N(t), !1] : [t, !1];
 }
-function J(e, t, r, o) {
-  let n;
-  const s = p(), i = $(o || "strict"), u = () => r(...t.map((a) => a.getState())), h = () => {
+function Q(e, t, r, n) {
+  let o;
+  const s = v(), i = z(n || "strict"), u = () => r(...t.map((f) => f.getState())), h = () => {
     if (s.size() > 0) {
-      const a = u();
-      (!n || !i(n.value, a)) && (n = { value: a }, s.emit());
+      const f = u();
+      (!o || !i(o.value, f)) && (o = { value: f }, s.emit());
     } else
-      n = void 0;
+      o = void 0;
   };
-  return t.forEach((a) => a.onChange(h)), D({
+  return t.forEach((f) => f.onChange(h)), O({
     name: e,
     dependencies: t,
-    getState: () => (n || (n = { value: u() }), n.value),
-    onChange: (a) => s.on(a)
+    getState: () => (o || (o = { value: u() }), o.value),
+    onChange: (f) => s.on(f)
   });
 }
-function K(e) {
+function W(e) {
   const t = Object.assign(
     (r) => () => {
-      const o = t.current;
+      const n = t.current;
       return t.current = r, () => {
-        t.current = o;
+        t.current = n;
       };
     },
     {
@@ -186,181 +185,196 @@ function K(e) {
   );
   return t;
 }
-function Q(e, t) {
+function X(e, t) {
   const r = [];
-  for (const o of e)
-    r.push(o());
+  for (const n of e)
+    r.push(n());
   try {
     return t();
   } finally {
-    for (const o of r.reverse())
-      o();
+    for (const n of r.reverse())
+      n();
   }
 }
-const k = Object.assign(K, { use: Q }), q = k((e) => e());
-function W(e, t, r, o, n, s = "strict") {
+const q = Object.assign(W, { use: X }), $ = q((e) => e());
+function Y(e, t, r, n, o, s = "strict") {
   let i = t;
-  const u = p(), h = $(s), m = p(), g = () => i, a = (y) => {
-    if (typeof y == "function")
-      return y({
-        dispatch: a,
-        domain: o,
+  const u = v(), h = z(s), y = v(), g = () => i, f = (m) => {
+    if (typeof m == "function")
+      return m({
+        dispatch: f,
+        domain: n,
         getState: g
       });
-    const S = y, A = {
-      dispatch: a,
-      domain: o,
+    const p = m, _ = {
+      dispatch: f,
+      domain: n,
       getState: g
     };
-    m.emit({ action: S, source: e, context: A });
+    y.emit({ action: p, source: e, context: _ });
     const C = i;
-    i = r(i, S), h(i, C) || q.current(u.emit), n == null || n({ action: S, source: e, context: A });
-  }, E = (y) => {
-    const S = {
-      dispatch: a,
-      domain: o,
+    i = r(i, p), h(i, C) || $.current(u.emit), o == null || o({ action: p, source: e, context: _ });
+  }, E = (m) => {
+    const p = {
+      dispatch: f,
+      domain: n,
       getState: g
     };
-    m.emit({ action: y, source: e, context: S });
-    const A = i;
-    i = r(i, y), i !== A && u.emit();
+    y.emit({ action: m, source: e, context: p });
+    const _ = i;
+    i = r(i, m), i !== _ && u.emit();
   };
-  return D({
+  return O({
     /** Store identifier (includes domain path, e.g., "app.auth.user") */
     name: e,
     /** Get current state */
     getState: g,
     /** Dispatch action or thunk */
-    dispatch: a,
+    dispatch: f,
     /** Subscribe to state changes (only fires when state actually changes) */
     onChange: u.on,
     /** Subscribe to all dispatches (fires on every dispatch, even if no change) */
-    onDispatch: m.on,
+    onDispatch: y.on,
     /** @internal - Receives broadcasts from parent domain */
     _receiveDomainAction: E
   });
 }
-function X() {
+function Z() {
   const e = /* @__PURE__ */ new Map(), t = /* @__PURE__ */ new Map();
-  return { get: (n, s) => {
-    const i = t.get(n) || n;
+  return { get: (o, s) => {
+    const i = t.get(o) || o;
     if (e.has(i))
       return e.get(i);
     const u = i.create(s);
     return e.set(i, u), u;
-  }, override: (n, s) => {
-    if (e.has(n))
+  }, override: (o, s) => {
+    if (e.has(o))
       throw new Error(
-        `Cannot override module: Instance already created for ${n.name}`
+        `Cannot override module: Instance already created for ${o.name}`
       );
-    return t.set(n, s), () => {
-      t.delete(n);
+    return t.set(o, s), () => {
+      t.delete(o);
     };
   } };
 }
-function R(e, t, r = X(), o) {
-  const n = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Set(), i = p(), u = p(), h = () => ({
+function B(e, t, r = Z(), n) {
+  const o = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Set(), i = v(), u = v(), h = () => ({
     dispatch: E,
-    get: y
-  }), m = (c) => {
+    get: m
+  }), y = (c) => {
     u.emit(c), t == null || t(c);
-  }, g = (c) => i.on(c), a = (c) => {
-    const l = i.on(c), f = u.on(c);
+  }, g = (c) => i.on(c), f = (c) => {
+    const l = i.on(c), a = u.on(c);
     return () => {
-      l(), f();
+      l(), a();
     };
   }, E = (c) => {
     if (typeof c == "function")
       return c(h());
-    const l = c, f = h();
-    i.emit({ action: l, source: e, context: f }), n.forEach((_) => _._receiveDomainAction(l)), s.forEach((_) => _._receiveDomainAction(l)), t == null || t({ action: l, source: e, context: f });
-  }, z = (c) => {
+    const l = c, a = h();
+    i.emit({ action: l, source: e, context: a }), o.forEach((S) => S._receiveDomainAction(l)), s.forEach((S) => S._receiveDomainAction(l)), t == null || t({ action: l, source: e, context: a });
+  }, F = (c) => {
     const l = h();
-    i.emit({ action: c, source: e, context: l }), n.forEach((f) => f._receiveDomainAction(c)), s.forEach((f) => f._receiveDomainAction(c));
-  }, y = (c) => r.get(c, v), S = (c, l) => r.override(c, l), A = (c, l, f, _) => {
-    const w = `${e}.${c}`;
-    return J(w, l, f, _);
+    i.emit({ action: c, source: e, context: l }), o.forEach((a) => a._receiveDomainAction(c)), s.forEach((a) => a._receiveDomainAction(c));
+  }, m = (c) => r.get(c, A), p = (c, l) => r.override(c, l), _ = (c, l, a, S) => {
+    const j = `${e}.${c}`;
+    return Q(j, l, a, S);
   };
-  function C(c, l, f) {
-    const _ = `${e}.${c}`, w = W(
-      _,
+  function C(c, l, a) {
+    const S = `${e}.${c}`, j = Y(
+      S,
       l,
-      f,
+      a,
       h(),
-      m
+      y
     );
-    return n.add(w), w;
+    return o.add(j), j;
   }
-  const v = D({
+  const A = O({
     name: e,
     root: null,
     // Placeholder, set below
     dispatch: E,
-    get: y,
-    override: S,
+    get: m,
+    override: p,
     onDispatch: g,
-    onAnyDispatch: a,
+    onAnyDispatch: f,
     store: C,
-    derived: A,
+    derived: _,
     domain: (c) => {
-      const l = `${e}.${c}`, f = R(
+      const l = `${e}.${c}`, a = B(
         l,
-        m,
+        y,
         r,
-        v.root
+        A.root
       );
-      return s.add(f), f;
+      return s.add(a), a;
     },
-    _receiveDomainAction: z
+    _receiveDomainAction: F
   });
-  return v.root = o ?? v, v;
+  return A.root = n ?? A, A;
 }
-function x(e) {
-  return R(e);
+function tt(e) {
+  return B(e);
 }
-const P = (e, t) => ({ name: e, create: t });
-let j = 0;
-function tt(e, t) {
-  if (j++, j === 1) {
-    const r = p();
+const et = (e, t) => ({ name: e, create: t });
+let w = 0;
+function rt(e, t) {
+  if (w++, w === 1) {
+    const r = v();
     try {
-      return k.use([q(r.on)], e);
+      return q.use([$(r.on)], e);
     } finally {
-      j--, k.use([q(r.on)], () => {
-        const o = () => {
+      w--, q.use([$(r.on)], () => {
+        const n = () => {
           for (; r.size() > 0; )
             r.emitAndClear();
         };
-        t === "async" ? requestAnimationFrame(o) : o();
+        t === "async" ? requestAnimationFrame(n) : n();
       });
     }
   }
   try {
     return e();
   } finally {
-    j--;
+    w--;
   }
 }
+function b(e, t) {
+  const r = (...n) => ({
+    type: e,
+    payload: t ? t(...n) : void 0
+  });
+  return r.type = e, r.match = (n) => n.type === e, r;
+}
+function M(e) {
+  const t = {};
+  for (const r in e)
+    if (Object.prototype.hasOwnProperty.call(e, r)) {
+      const n = e[r];
+      n === !0 ? t[r] = b(r) : typeof n == "string" ? t[r] = b(n) : typeof n == "function" ? t[r] = b(r, n) : typeof n == "object" && n !== null && (t[r] = b(n.type, n.prepare));
+    }
+  return t;
+}
+M.reducer = function(t, r) {
+  return r;
+};
 export {
-  nt as actions,
-  tt as batch,
-  ot as createActionCreator,
-  st as createActionsFromMap,
-  it as createReducerFromMap,
-  F as createStableFn,
-  O as deepEqual,
-  J as derived,
-  x as domain,
-  p as emitter,
-  Z as equality,
-  ct as isReducerMap,
-  G as isStableFn,
-  P as module,
-  $ as resolveEquality,
-  N as shallow2Equal,
-  V as shallow3Equal,
-  b as shallowEqual,
-  L as strictEqual,
-  T as tryStabilize,
-  D as withUse
+  M as actions,
+  rt as batch,
+  N as createStableFn,
+  k as deepEqual,
+  Q as derived,
+  tt as domain,
+  v as emitter,
+  x as equality,
+  K as isStableFn,
+  et as module,
+  z as resolveEquality,
+  I as shallow2Equal,
+  J as shallow3Equal,
+  D as shallowEqual,
+  G as strictEqual,
+  P as tryStabilize,
+  O as withUse
 };

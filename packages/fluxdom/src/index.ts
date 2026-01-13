@@ -5,13 +5,16 @@
  *
  * @example
  * ```ts
- * import { domain, actions } from "fluxdom";
+ * import { domain } from "fluxdom";
  *
  * const app = domain("app");
- * const counterActions = actions({
- *   increment: (state: number) => state + 1,
+ * const store = app.store("counter", 0, (state, action) => {
+ *   switch (action.type) {
+ *     case "increment": return state + 1;
+ *     default: return state;
+ *   }
  * });
- * const counterStore = app.store("counter", 0, counterActions.reducer);
+ * store.dispatch({ type: "increment" });
  * ```
  */
 
@@ -20,16 +23,15 @@ export { domain } from "./core/domain";
 export { derived } from "./core/derived";
 export { module } from "./core/module";
 export { batch } from "./core/batch";
-
-// Actions helper — creates action creators + reducer
 export { actions } from "./core/actions";
 
-// Low-level action utilities
-export {
-  createActionCreator,
-  createReducerFromMap,
-  createActionsFromMap,
-  isReducerMap,
+// Action types
+export type {
+  ActionCreator,
+  AnyActionCreator,
+  InferActionCreators,
+  InferAction,
+  InferActionsFromMap,
 } from "./core/actions";
 
 // Utilities

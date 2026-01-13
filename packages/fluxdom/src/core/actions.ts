@@ -1,222 +1,211 @@
-import {
-  Action,
-  ActionCreator,
-  ActionsFromMap,
-  ActionsWithReducer,
-  InferState,
-  MapAction,
-  MapActionsUnion,
-  Reducer,
-  ReducerMap,
-} from "../types";
+import { Action, Reducer } from "../types";
 
-/**
- * Create an action creator function with a `.type` property.
- *
- * @param type - The action type string (e.g., "increment")
- * @returns An action creator that returns { type, args }
- *
- * @example
- * ```ts
- * const increment = createActionCreator<"increment", []>("increment");
- * increment();        // { type: "increment", args: [] }
- * increment.type;     // "increment"
- *
- * const add = createActionCreator<"add", [number]>("add");
- * add(5);             // { type: "add", args: [5] }
- * ```
- */
-export function createActionCreator<TKey extends string, TArgs extends any[]>(
-  type: TKey
-): ActionCreator<TKey, TArgs> {
-  const creator = (...args: TArgs) =>
-    ({ type, args } as { type: TKey; args: TArgs });
-  Object.defineProperty(creator, "type", { value: type, writable: false });
-  return creator as ActionCreator<TKey, TArgs>;
+// --- Types ---
+
+/** Unified action creator type */
+export interface ActionCreator<
+  TType extends string,
+  TArgs extends any[] = [],
+  TPayload = void
+> {
+  (...args: TArgs): { type: TType; payload: TPayload };
+  type: TType;
+  match: (action: Action) => action is { type: TType; payload: TPayload };
 }
 
-/**
- * Convert a reducer map to a standard reducer function.
- *
- * The reducer looks up the handler by matching the action type directly
- * against the handler keys in the map.
- *
- * @param map - Object mapping handler names to handler functions
- * @returns A reducer function compatible with createStore
- *
- * @example
- * ```ts
- * const reducer = createReducerFromMap({
- *   increment: (state) => state + 1,
- *   add: (state, amount: number) => state + amount,
- * });
- *
- * reducer(0, { type: "increment", args: [] }); // 1
- * reducer(0, { type: "add", args: [5] });      // 5
- * ```
- */
-export function createReducerFromMap<TState>(
-  map: ReducerMap<TState>
-): Reducer<TState, MapAction> {
-  return (state, action) => {
-    // Look up handler by action type directly
-    const handler = map[action.type];
+/** Any action creator */
+export type AnyActionCreator = ActionCreator<any, any, any>;
 
-    if (handler) {
-      return handler(state, ...(action.args || []));
+/** Map of action definitions */
+export type ActionDefinitionMap = {
+  [key: string]:
+    | true // no payload, type = key
+    | string // no payload, custom type
+    | ((...args: any[]) => any) // with prepare function
+    | { type: string; prepare: (...args: any[]) => any }; // full config
+};
+
+/** Infer action creator type from a single definition */
+type InferActionCreator<TKey extends string, TDef> = TDef extends true
+  ? ActionCreator<TKey>
+  : TDef extends string
+  ? ActionCreator<TDef>
+  : TDef extends (...args: infer TArgs) => infer TPayload
+  ? ActionCreator<TKey, TArgs, TPayload>
+  : TDef extends {
+      type: infer TType;
+      prepare: (...args: infer TArgs) => infer TPayload;
     }
+  ? TType extends string
+    ? ActionCreator<TType, TArgs, TPayload>
+    : never
+  : never;
 
-    return state;
-  };
+/** Infer action creators map from definitions */
+export type InferActionCreators<TMap extends ActionDefinitionMap> = {
+  [K in keyof TMap]: K extends string ? InferActionCreator<K, TMap[K]> : never;
+};
+
+/** Infer action from action creator */
+export type InferAction<T> = T extends ActionCreator<
+  infer TType,
+  any,
+  infer TPayload
+>
+  ? { type: TType; payload: TPayload }
+  : never;
+
+/** Infer action union from action creator map */
+export type InferActionsFromMap<TMap> = TMap extends Record<
+  string,
+  AnyActionCreator
+>
+  ? InferAction<TMap[keyof TMap]>
+  : never;
+
+/** Input types for actions.reducer */
+export type ActionsInput =
+  | Record<string, AnyActionCreator>
+  | AnyActionCreator
+  | readonly (Record<string, AnyActionCreator> | AnyActionCreator)[];
+
+/** Infer action union from ActionsInput */
+type InferActionsFromInput<T> = T extends readonly (infer U)[]
+  ? U extends Record<string, AnyActionCreator>
+    ? InferActionsFromMap<U>
+    : U extends AnyActionCreator
+    ? InferAction<U>
+    : never
+  : T extends Record<string, AnyActionCreator>
+  ? InferActionsFromMap<T>
+  : T extends AnyActionCreator
+  ? InferAction<T>
+  : never;
+
+// --- Implementation ---
+
+/**
+ * Create an action creator.
+ */
+function createActionCreator<
+  TType extends string,
+  TArgs extends any[] = [],
+  TPayload = void
+>(
+  type: TType,
+  prepare?: (...args: TArgs) => TPayload
+): ActionCreator<TType, TArgs, TPayload> {
+  const creator = ((...args: TArgs) => ({
+    type,
+    payload: prepare ? prepare(...args) : undefined,
+  })) as ActionCreator<TType, TArgs, TPayload>;
+
+  (creator as any).type = type;
+  (creator as any).match = (
+    action: Action
+  ): action is { type: TType; payload: TPayload } => action.type === type;
+
+  return creator;
 }
 
 /**
- * Generate action creators from a reducer map.
+ * Create action creators from a definition map.
  *
- * Each key in the map becomes an action creator with:
- * - A function that returns { type, args }
- * - A `.type` property matching the handler key
- *
- * @param map - Object mapping handler names to handler functions
- * @returns Object with action creators matching the map keys
+ * @param definitions - Object defining actions
+ * @returns Object with action creators
  *
  * @example
  * ```ts
- * const actions = createActionsFromMap({
- *   increment: (state) => state + 1,
- *   add: (state, amount: number) => state + amount,
+ * const counterActions = actions({
+ *   increment: true,                              // { type: "increment", payload: void }
+ *   decrement: "COUNTER_DECREMENT" as const,      // { type: "COUNTER_DECREMENT", payload: void }
+ *   incrementBy: (n: number) => n,                // { type: "incrementBy", payload: n }
+ *   set: { type: "SET", prepare: (v: number) => ({ value: v }) }
  * });
  *
- * actions.increment.type;  // "increment"
- * actions.increment();     // { type: "increment", args: [] }
- * actions.add.type;        // "add"
- * actions.add(5);          // { type: "add", args: [5] }
+ * counterActions.increment();      // { type: "increment", payload: undefined }
+ * counterActions.decrement();      // { type: "COUNTER_DECREMENT", payload: undefined }
+ * counterActions.incrementBy(5);   // { type: "incrementBy", payload: 5 }
+ * counterActions.set(10);          // { type: "SET", payload: { value: 10 } }
+ * ```
+ *
+ * @note When using custom string types, add `as const` for proper type inference:
+ * ```ts
+ * // ❌ Without `as const` - type is inferred as `string`
+ * const bad = actions({ reset: "RESET" });
+ * // action.type is `string`, not `"RESET"`
+ *
+ * // ✅ With `as const` - type is inferred as literal `"RESET"`
+ * const good = actions({ reset: "RESET" as const });
+ * // action.type is `"RESET"`
  * ```
  */
-export function createActionsFromMap<TState, TMap extends ReducerMap<TState>>(
-  map: TMap
-): ActionsFromMap<TState, TMap> {
-  const actions = {} as ActionsFromMap<TState, TMap>;
+export function actions<TMap extends ActionDefinitionMap>(
+  definitions: TMap
+): InferActionCreators<TMap> {
+  const result: Record<string, AnyActionCreator> = {};
 
-  for (const key in map) {
-    if (Object.prototype.hasOwnProperty.call(map, key)) {
-      // Type assertion needed because we're building the object dynamically
-      (actions as any)[key] = createActionCreator<typeof key, any[]>(key);
+  for (const key in definitions) {
+    if (Object.prototype.hasOwnProperty.call(definitions, key)) {
+      const def = definitions[key];
+
+      if (def === true) {
+        // No payload, type = key
+        result[key] = createActionCreator(key);
+      } else if (typeof def === "string") {
+        // No payload, custom type
+        result[key] = createActionCreator(def);
+      } else if (typeof def === "function") {
+        // With prepare function, type = key
+        result[key] = createActionCreator(key, def);
+      } else if (typeof def === "object" && def !== null) {
+        // Full config with type and prepare
+        result[key] = createActionCreator(def.type, def.prepare);
+      }
     }
   }
 
-  return actions;
+  return result as InferActionCreators<TMap>;
 }
 
 /**
- * Check if a value is a reducer map (object) vs a reducer function.
+ * Create a reducer that handles actions from the given action creators.
  *
- * @param value - The value to check
- * @returns true if it's an object (reducer map), false if it's a function
- */
-export function isReducerMap<TState>(
-  value: ReducerMap<TState> | ((...args: any[]) => any)
-): value is ReducerMap<TState> {
-  return typeof value === "object" && value !== null;
-}
-
-/**
- * Create action creators and a reducer from a handler map.
- *
- * This is the recommended way to define store actions in FluxDom.
- * Returns action creators with a combined `.reducer` property.
- *
- * @param map - Object mapping action names to handler functions
- * @param onDomainAction - Optional reducer to handle domain-level actions
- * @returns Action creators object with `.reducer` property
+ * @param actionsInput - Action creators (map, array, or single)
+ * @param reducer - Reducer function with auto-inferred action type
+ * @returns Reducer function
  *
  * @example
  * ```ts
- * import { domain, actions } from "fluxdom";
- *
- * // Basic usage
- * const app = domain("app");
- *
  * const counterActions = actions({
- *   increment: (state: number) => state + 1,
- *   decrement: (state: number) => state - 1,
- *   add: (state: number, amount: number) => state + amount,
+ *   increment: true,
+ *   incrementBy: (n: number) => n,
  * });
  *
- * const store = app.store("counter", 0, counterActions.reducer);
- * store.dispatch(counterActions.increment());
- * store.dispatch(counterActions.add(5));
- * ```
+ * const appActions = actions({
+ *   resetAll: "RESET_ALL",
+ * });
  *
- * @example
- * ```ts
- * // With domain action handler
- * type AppAction = { type: "RESET_ALL" };
- * const app = domain<AppAction>("app");
- *
- * const counterActions = actions(
- *   {
- *     increment: (state: number) => state + 1,
- *   },
- *   // Second param: handles domain-level actions
- *   (state, action: AppAction) => {
- *     if (action.type === "RESET_ALL") return 0;
- *     return state;
+ * // Combine multiple action sources
+ * const reducer = actions.reducer(
+ *   [counterActions, appActions],
+ *   (state: number, action) => {
+ *     switch (action.type) {
+ *       case "increment": return state + 1;
+ *       case "incrementBy": return state + action.payload;
+ *       case "RESET_ALL": return 0;
+ *       default: return state;
+ *     }
  *   }
  * );
  *
- * const store = app.store("counter", 10, counterActions.reducer);
- * store.dispatch(counterActions.increment()); // 11
- * app.dispatch({ type: "RESET_ALL" });        // 0
- * ```
- *
- * @example
- * ```ts
- * // With Immer for mutable syntax
- * import { withImmer } from "fluxdom/immer";
- *
- * const todoActions = actions(withImmer({
- *   add: (state, text: string) => {
- *     state.items.push({ id: Date.now(), text, done: false });
- *   },
- *   toggle: (state, id: number) => {
- *     const item = state.items.find(t => t.id === id);
- *     if (item) item.done = !item.done;
- *   },
- * }));
+ * const store = app.store("counter", 0, reducer);
  * ```
  */
-export function actions<
-  TMap extends ReducerMap<any>,
-  TDomainAction extends Action = Action
->(
-  map: TMap,
-  onDomainAction?: Reducer<InferState<TMap>, TDomainAction>
-): ActionsWithReducer<InferState<TMap>, TMap, TDomainAction> {
-  type TState = InferState<TMap>;
-
-  const actionCreators = createActionsFromMap<TState, TMap>(map as any);
-  const mapReducer = createReducerFromMap<TState>(map as any);
-
-  // Combined reducer: first try map handlers, then domain reducer
-  const combinedReducer: Reducer<
-    TState,
-    MapActionsUnion<TState, TMap> | TDomainAction
-  > = (state, action) => {
-    // Check if it's a MapAction (has args property)
-    if ("args" in action) {
-      return mapReducer(state, action as MapAction);
-    }
-
-    // Otherwise, try domain reducer
-    if (onDomainAction) {
-      return onDomainAction(state, action as TDomainAction);
-    }
-
-    return state;
-  };
-
-  return Object.assign(actionCreators, {
-    reducer: combinedReducer,
-  }) as ActionsWithReducer<TState, TMap, TDomainAction>;
-}
+actions.reducer = function reducer<TInput extends ActionsInput, TState>(
+  _actionsInput: TInput,
+  reducerFn: (state: TState, action: InferActionsFromInput<TInput>) => TState
+): Reducer<TState, InferActionsFromInput<TInput>> {
+  // The actionsInput is only used for type inference, not at runtime
+  return reducerFn as Reducer<TState, InferActionsFromInput<TInput>>;
+};
