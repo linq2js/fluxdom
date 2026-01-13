@@ -1,17 +1,5 @@
-/**
- * Domain configuration for the Todo application.
- *
- * This module defines the complete state management setup using FluxDom:
- * - Types: Data models
- * - Modules: Injectable services (API layer)
- * - Domain: The root container for models and modules
- * - Model: State container with bound actions and thunks
- *
- * @module domain
- */
-
-import { domain, module } from "fluxdom";
-import { produce } from "immer";
+import { module } from "./module";
+import { domain } from "./domain";
 
 // =============================================================================
 // Types
@@ -140,85 +128,72 @@ export const todoModel = appDomain.model({
   initial: initialState,
 
   actions: (ctx) => ({
-    // Loading state
-    setLoading: produce((draft: TodoState) => {
-      draft.loading = true;
-      draft.error = null;
+    setLoading: (state: TodoState): TodoState => ({
+      ...state,
+      loading: true,
+      error: null,
     }),
-
-    // Success: set items from API
-    setItems: produce((draft: TodoState, items: Todo[]) => {
-      draft.loading = false;
-      draft.items = items;
+    setItems: (state: TodoState, items: Todo[]): TodoState => ({
+      ...state,
+      loading: false,
+      items,
     }),
-
-    // Error handling
-    setError: produce((draft: TodoState, error: string) => {
-      draft.loading = false;
-      draft.error = error;
+    setError: (state: TodoState, error: string): TodoState => ({
+      ...state,
+      loading: false,
+      error,
     }),
-
-    // Optimistic local add (without API)
-    add: produce((draft: TodoState, title: string) => {
-      draft.items.unshift({
-        userId: 1,
-        id: Date.now(),
-        title,
-        completed: false,
-      });
+    add: (state: TodoState, title: string): TodoState => ({
+      ...state,
+      items: [
+        {
+          userId: 1,
+          id: Date.now(),
+          title,
+          completed: false,
+        },
+        ...state.items,
+      ],
     }),
-
-    // Add from API response
-    addItem: produce((draft: TodoState, item: Todo) => {
-      draft.loading = false;
-      draft.items.unshift(item);
+    addItem: (state: TodoState, item: Todo): TodoState => ({
+      ...state,
+      loading: false,
+      items: [item, ...state.items],
     }),
-
-    // Toggle completion
-    toggle: produce((draft: TodoState, id: number) => {
-      const todo = draft.items.find((t) => t.id === id);
-      if (todo) todo.completed = !todo.completed;
+    toggle: (state: TodoState, id: number): TodoState => ({
+      ...state,
+      items: state.items.map((t) =>
+        t.id === id ? { ...t, completed: !t.completed } : t
+      ),
     }),
-
-    // Remove todo
-    remove: produce((draft: TodoState, id: number) => {
-      const index = draft.items.findIndex((t) => t.id === id);
-      if (index !== -1) draft.items.splice(index, 1);
+    remove: (state: TodoState, id: number): TodoState => ({
+      ...state,
+      items: state.items.filter((t) => t.id !== id),
     }),
-
-    // Reset to initial state
     reset: ctx.reducers.reset,
   }),
 
   thunks: (ctx) => ({
-    /**
-     * Fetches todos from the API and updates the model.
-     */
-    fetchTodos: ctx.thunk(() => async ({ dispatch, domain }) => {
-      dispatch(ctx.actions.setLoading());
+    fetchTodos: ctx.thunk(() => async ({ domain }) => {
+      todoModel.setLoading();
       const api = domain.get(TodoApiModule);
 
       try {
         const todos = await api.getTodos();
-        dispatch(ctx.actions.setItems(todos));
+        todoModel.setItems(todos);
       } catch (err) {
-        dispatch(ctx.actions.setError(String(err)));
+        todoModel.setError(String(err));
       }
     }),
-
-    /**
-     * Creates a new todo via the API.
-     */
-    addTodo: ctx.thunk((title: string) => async ({ dispatch, domain }) => {
-      dispatch(ctx.actions.setLoading());
+    addTodo: ctx.thunk((title: string) => async ({ domain }) => {
+      todoModel.setLoading();
       const api = domain.get(TodoApiModule);
 
       try {
         const newTodo = await api.addTodo(title);
-        // JSONPlaceholder always returns ID 201, so we generate a unique ID
-        dispatch(ctx.actions.addItem({ ...newTodo, id: Date.now() }));
+        todoModel.addItem({ ...newTodo, id: Date.now() });
       } catch (err) {
-        dispatch(ctx.actions.setError(String(err)));
+        todoModel.setError(String(err));
       }
     }),
   }),

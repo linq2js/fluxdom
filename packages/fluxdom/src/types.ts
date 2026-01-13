@@ -448,11 +448,18 @@ export interface Domain<TDomainAction extends Action = Action>
 /**
  * A Module Definition.
  * Static definition of a module, separated from its instantiation.
+ *
+ * Modules are singletons shared across the entire domain hierarchy.
+ * The `create` function always receives the **root domain**, ensuring
+ * consistent behavior regardless of which subdomain first requests the module.
  */
 export interface ModuleDef<TModule, TAction extends Action = any> {
   /** Unique name for the module (e.g. 'api', 'auth', 'logger') */
   readonly name: string;
-  /** Factory function to create the module instance */
+  /**
+   * Factory function to create the module instance.
+   * @param domain - The root domain (always root, never a subdomain)
+   */
   readonly create: (domain: Domain<TAction>) => TModule;
 }
 
@@ -870,12 +877,34 @@ export type ModelActionCreators<TActionMap extends ModelActionMap<any>> = {
  */
 export interface ModelThunkContext<
   TState,
-  TActionMap extends ModelActionMap<TState>
+  TActionMap extends ModelActionMap<TState>,
+  TActions extends Action = MapActionsUnion<TState, TActionMap>,
+  TDomainAction extends Action = Action
 > {
   /** Type-safe action creators from the actions builder */
   actions: ModelActionCreators<TActionMap>;
   /** Initial state value (for reference, e.g., reset thunks) */
   initial: TState;
+  /**
+   * Helper to create a typed thunk creator.
+   * Provides proper type inference for the StoreContext parameter.
+   *
+   * @example
+   * ```ts
+   * thunks: (ctx) => ({
+   *   fetchData: ctx.thunk(() => async ({ dispatch, getState }) => {
+   *     // dispatch and getState are properly typed
+   *   })
+   * })
+   * ```
+   */
+  thunk: <TArgs extends any[], TResult>(
+    creator: (
+      ...args: TArgs
+    ) => (ctx: StoreContext<TState, TActions, TDomainAction>) => TResult
+  ) => (
+    ...args: TArgs
+  ) => (ctx: StoreContext<TState, TActions, TDomainAction>) => TResult;
 }
 
 /**

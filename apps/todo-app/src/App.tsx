@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { todoStore, fetchTodos, addTodoThunk, appDomain } from "./domain";
+import { todoModel } from "./domain";
 import { useSelector } from "fluxdom/react";
 import "./App.css";
 
@@ -60,27 +60,30 @@ const ClipboardIcon = () => (
 );
 
 function App() {
-  const { items, loading, error } = useSelector(todoStore);
+  // Model IS a store, so useSelector works directly
+  const { items, loading, error } = useSelector(todoModel);
   const [newTitle, setNewTitle] = useState("");
 
-  // Initial Load
+  // Initial Load - call bound thunk method directly
   useEffect(() => {
-    appDomain.dispatch(fetchTodos());
+    todoModel.fetchTodos();
   }, []);
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    appDomain.dispatch(addTodoThunk(newTitle));
+    // Call bound thunk method directly
+    todoModel.addTodo(newTitle);
     setNewTitle("");
   };
 
+  // Call bound action methods directly - no dispatch needed!
   const handleToggle = (id: number) => {
-    todoStore.dispatch({ type: "TOGGLE", id });
+    todoModel.toggle(id);
   };
 
   const handleRemove = (id: number) => {
-    todoStore.dispatch({ type: "REMOVE", id });
+    todoModel.remove(id);
   };
 
   const completedCount = items.filter((t) => t.completed).length;

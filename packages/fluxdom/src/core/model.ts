@@ -153,7 +153,14 @@ export interface BuildModelConfig<
   name: string;
   initial: TState;
   actions: (ctx: ModelActionContext<TState, TDomainAction>) => TActionMap;
-  thunks?: (ctx: ModelThunkContext<TState, TActionMap>) => TThunkMap;
+  thunks?: (
+    ctx: ModelThunkContext<
+      TState,
+      TActionMap,
+      MapActionsUnion<TState, TActionMap>,
+      TDomainAction
+    >
+  ) => TThunkMap;
   equals?: Equality<TState>;
 }
 
@@ -205,10 +212,17 @@ export function buildModel<
   // 4. Create the store with optional equality
   const store = createStore(name, initial, reducer, equals);
 
-  // 5. Create thunk context with action creators and initial state
-  const thunkContext: ModelThunkContext<TState, TActionMap> = {
+  // 5. Create thunk context with action creators, initial state, and thunk helper
+  const thunkContext: ModelThunkContext<
+    TState,
+    TActionMap,
+    MapActionsUnion<TState, TActionMap>,
+    TDomainAction
+  > = {
     actions: actionCreators as ModelActionCreators<TActionMap>,
     initial,
+    // Identity function that provides proper type inference for thunk creators
+    thunk: (creator) => creator,
   };
 
   // 6. Get thunk map if provided (pass thunk context)

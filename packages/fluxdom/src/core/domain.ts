@@ -15,6 +15,7 @@ import {
   ModelActionContext,
   ModelActionMap,
   ModelThunkMap,
+  ModelThunkContext,
   ModelWithMethods,
   MapActionsUnion,
   StoreConfig,
@@ -32,9 +33,15 @@ import { createResolver, Resolver } from "./resolver";
 function createDomain<TAction extends Action>(
   name: string,
   notifyParent?: OnDispatch,
-  resolver: Resolver = createResolver(),
+  resolver?: Resolver<TAction>,
   root?: Domain<any>
 ): Domain<TAction> {
+  // Root domain placeholder - set after domainObject is created
+  let domainObjectRef: Domain<TAction> | null = null;
+
+  // Create resolver for root domain (subdomains receive it from parent)
+  const resolverInstance =
+    resolver ?? createResolver<TAction>(() => domainObjectRef!.root);
   // Closure State
   const stores = new Set<Store<any>>();
   const subdomains = new Set<Domain<any>>();
@@ -118,14 +125,14 @@ function createDomain<TAction extends Action>(
 
   // --- Module System ---
   const get: ResolveModule<TAction> = (factory) => {
-    return resolver.get(factory, domainObject);
+    return resolverInstance.get(factory);
   };
 
   const override = <TModule>(
     source: ModuleDef<TModule, TAction>,
     mock: ModuleDef<TModule, TAction>
   ): VoidFunction => {
-    return resolver.override(source, mock);
+    return resolverInstance.override(source, mock);
   };
 
   // --- Factory Methods ---
@@ -168,7 +175,7 @@ function createDomain<TAction extends Action>(
     const sub = createDomain<SubAction | TAction>(
       fullName,
       handleChildDispatch,
-      resolver,
+      resolverInstance as Resolver<SubAction | TAction>,
       domainObject.root
     );
     subdomains.add(sub);
@@ -188,7 +195,14 @@ function createDomain<TAction extends Action>(
     name: string;
     initial: TState;
     actions: (ctx: ModelActionContext<TState>) => TActionMap;
-    thunks?: () => TThunkMap;
+    thunks?: (
+      ctx: ModelThunkContext<
+        TState,
+        TActionMap,
+        MapActionsUnion<TState, TActionMap>,
+        TAction
+      >
+    ) => TThunkMap;
     equals?: Equality<TState>;
   }): ModelWithMethods<TState, TActionMap, TThunkMap, TAction> => {
     // Create a store factory that delegates to our store() method
@@ -221,10 +235,11 @@ function createDomain<TAction extends Action>(
     _receiveDomainAction,
   }) as Domain<TAction>;
 
-  // Verify root logic
-  // If root passed, use it. If not, this is root.
-  // We have to cast to Mutable to assign readonly property
+  // Set root reference (for root domain, it's self; for subdomain, it's passed in)
   (domainObject as any).root = root ?? domainObject;
+
+  // Set the reference for the resolver's getRootDomain getter
+  domainObjectRef = domainObject;
 
   return domainObject;
 }
