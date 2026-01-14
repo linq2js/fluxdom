@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { domain } from "./domain";
-// StoreContext not needed - thunks use closure for context
+// StoreContext not needed - effects use closure for context
 
 describe("model()", () => {
   describe("basic usage", () => {
@@ -119,8 +119,8 @@ describe("model()", () => {
     });
   });
 
-  describe("thunks", () => {
-    it("should support thunk creators", async () => {
+  describe("effects", () => {
+    it("should support effect creators", async () => {
       const app = domain("app");
 
       const counter = app.model({
@@ -129,7 +129,7 @@ describe("model()", () => {
         actions: () => ({
           add: (state, n: number) => state + n,
         }),
-        thunks: ({ dispatch }) => ({
+        effects: ({ dispatch }) => ({
           addAsync: async (n: number) => {
             await Promise.resolve();
             dispatch({ type: "add", args: [n] });
@@ -157,7 +157,7 @@ describe("model()", () => {
           add: (state, n: number) => state + n,
           set: (_state, value: number) => value,
         }),
-        thunks: ({ actions, dispatch, getState }) => ({
+        effects: ({ actions, dispatch, getState }) => ({
           // Use actions for type-safe dispatch
           incrementTwice: () => {
             dispatch(actions.increment());
@@ -181,7 +181,7 @@ describe("model()", () => {
       expect(counter.getState()).toBe(14);
     });
 
-    it("should provide ctx.initial for reset thunks", () => {
+    it("should provide ctx.initial for reset effects", () => {
       const app = domain("app");
 
       const counter = app.model({
@@ -191,7 +191,7 @@ describe("model()", () => {
           increment: (state) => state + 1,
           set: (_state, value: number) => value,
         }),
-        thunks: ({ actions, dispatch, initial }) => ({
+        effects: ({ actions, dispatch, initial }) => ({
           reset: () => {
             dispatch(actions.set(initial));
           },
@@ -206,7 +206,7 @@ describe("model()", () => {
       expect(counter.getState()).toBe(100); // Back to initial
     });
 
-    it("should allow using ctx.actions in async thunks", async () => {
+    it("should allow using ctx.actions in async effects", async () => {
       const app = domain("app");
 
       interface DataState {
@@ -221,7 +221,7 @@ describe("model()", () => {
           setLoading: (state, loading: boolean) => ({ ...state, loading }),
           setData: (state, data: number) => ({ ...state, data }),
         }),
-        thunks: ({ actions, dispatch }) => ({
+        effects: ({ actions, dispatch }) => ({
           fetchData: async () => {
             dispatch(actions.setLoading(true));
             await Promise.resolve();
@@ -237,7 +237,7 @@ describe("model()", () => {
       expect(dataModel.getState()).toEqual({ loading: false, data: 42 });
     });
 
-    it("should provide full store context to thunks", async () => {
+    it("should provide full store context to effects", async () => {
       const app = domain("app");
 
       const counter = app.model({
@@ -246,7 +246,7 @@ describe("model()", () => {
         actions: () => ({
           set: (_state, n: number) => n,
         }),
-        thunks: ({ dispatch, getState }) => ({
+        effects: ({ dispatch, getState }) => ({
           doubleIfLessThan: (max: number) => {
             const current = getState();
             if (current < max) {
@@ -269,7 +269,7 @@ describe("model()", () => {
       expect(counter.getState()).toBe(20);
     });
 
-    it("should allow thunks to access domain context", async () => {
+    it("should allow effects to access domain context", async () => {
       type AppAction = { type: "GLOBAL_RESET" };
       const app = domain<AppAction>("app");
 
@@ -282,7 +282,7 @@ describe("model()", () => {
         actions: () => ({
           increment: (state) => state + 1,
         }),
-        thunks: ({ domain }) => ({
+        effects: ({ domain }) => ({
           resetAll: () => {
             domain.dispatch({ type: "GLOBAL_RESET" });
           },
@@ -293,6 +293,289 @@ describe("model()", () => {
       counter.resetAll();
 
       expect(domainDispatchSpy).toHaveBeenCalledWith({ type: "GLOBAL_RESET" });
+    });
+  });
+
+  describe("task helper", () => {
+    it("should dispatch start action before async operation", async () => {
+      const app = domain("app");
+
+      interface State {
+        loading: boolean;
+        data: number | null;
+      }
+
+      const model = app.model({
+        name: "data",
+        initial: { loading: false, data: null } as State,
+        actions: () => ({
+          setLoading: (state, loading: boolean) => ({ ...state, loading }),
+          setData: (state, data: number) => ({ ...state, data, loading: false }),
+        }),
+        effects: ({ task, actions }) => ({
+          fetchData: task(
+            async () => {
+              await Promise.resolve();
+              return 42;
+            },
+            {
+              start: () => actions.setLoading(true),
+              done: (result) => actions.setData(result),
+            }
+          ),
+        }),
+      });
+
+      expect(model.getState()).toEqual({ loading: false, data: null });
+
+      const promise = model.fetchData();
+      // Start should have been dispatched synchronously
+      expect(model.getState().loading).toBe(true);
+
+      await promise;
+      expect(model.getState()).toEqual({ loading: false, data: 42 });
+    });
+
+    it("should dispatch fail action on error", async () => {
+      const app = domain("app");
+
+      interface State {
+        loading: boolean;
+        error: string | null;
+      }
+
+      const model = app.model({
+        name: "data",
+        initial: { loading: false, error: null } as State,
+        actions: () => ({
+          setLoading: (state, loading: boolean) => ({ ...state, loading }),
+          setError: (state, error: string) => ({ ...state, error, loading: false }),
+        }),
+        effects: ({ task, actions }) => ({
+          fetchData: task(
+            async () => {
+              throw new Error("Network error");
+            },
+            {
+              start: () => actions.setLoading(true),
+              fail: (err) => actions.setError(err.message),
+            }
+          ),
+        }),
+      });
+
+      await expect(model.fetchData()).rejects.toThrow("Network error");
+      expect(model.getState()).toEqual({ loading: false, error: "Network error" });
+    });
+
+    it("should dispatch end action after done or fail", async () => {
+      const app = domain("app");
+
+      interface State {
+        loading: boolean;
+        data: number | null;
+      }
+
+      const model = app.model({
+        name: "data",
+        initial: { loading: false, data: null } as State,
+        actions: () => ({
+          setLoading: (state, loading: boolean) => ({ ...state, loading }),
+          setData: (state, data: number) => ({ ...state, data }),
+        }),
+        effects: ({ task, actions }) => ({
+          fetchData: task(
+            async () => {
+              await Promise.resolve();
+              return 42;
+            },
+            {
+              start: () => actions.setLoading(true),
+              done: (result) => actions.setData(result),
+              end: () => actions.setLoading(false),
+            }
+          ),
+        }),
+      });
+
+      await model.fetchData();
+      expect(model.getState()).toEqual({ loading: false, data: 42 });
+    });
+
+    it("should pass error and result to end action", async () => {
+      const app = domain("app");
+
+      const endArgs: any[] = [];
+
+      interface State {
+        value: number;
+      }
+
+      const model = app.model({
+        name: "data",
+        initial: { value: 0 } as State,
+        actions: () => ({
+          setEnd: (state, err: Error | undefined, result: number | undefined) => ({
+            ...state,
+            value: err ? -1 : (result ?? 0),
+          }),
+        }),
+        effects: ({ task, actions }) => ({
+          fetchSuccess: task(
+            async () => 42,
+            {
+              end: (err, result) => {
+                endArgs.push({ err, result });
+                return actions.setEnd(err, result);
+              },
+            }
+          ),
+        }),
+      });
+
+      await model.fetchSuccess();
+      expect(endArgs[0]).toEqual({ err: undefined, result: 42 });
+      expect(model.getState().value).toBe(42);
+    });
+
+    it("should work with promises directly", async () => {
+      const app = domain("app");
+
+      interface State {
+        data: string | null;
+      }
+
+      const model = app.model({
+        name: "data",
+        initial: { data: null } as State,
+        actions: () => ({
+          setData: (state, data: string) => ({ ...state, data }),
+        }),
+        effects: ({ task, actions }) => ({
+          fetchInline: async () => {
+            // Use task with a promise directly
+            const result = await task(Promise.resolve("hello"), {
+              done: (r) => actions.setData(r),
+            });
+            return result;
+          },
+        }),
+      });
+
+      const result = await model.fetchInline();
+      expect(result).toBe("hello");
+      expect(model.getState().data).toBe("hello");
+    });
+
+    it("should preserve function signature when wrapping", async () => {
+      const app = domain("app");
+
+      interface State {
+        items: string[];
+      }
+
+      const model = app.model({
+        name: "data",
+        initial: { items: [] } as State,
+        actions: () => ({
+          setItems: (state, items: string[]) => ({ ...state, items }),
+        }),
+        effects: ({ task, actions }) => ({
+          // Function with multiple args
+          fetchItems: task(
+            async (prefix: string, count: number) => {
+              return Array.from({ length: count }, (_, i) => `${prefix}-${i}`);
+            },
+            {
+              done: (items) => actions.setItems(items),
+            }
+          ),
+        }),
+      });
+
+      const result = await model.fetchItems("item", 3);
+      expect(result).toEqual(["item-0", "item-1", "item-2"]);
+      expect(model.getState().items).toEqual(["item-0", "item-1", "item-2"]);
+    });
+
+    it("should support void return for listener-only callbacks", async () => {
+      const app = domain("app");
+
+      interface State {
+        data: number | null;
+      }
+
+      const sideEffects: string[] = [];
+
+      const model = app.model({
+        name: "data",
+        initial: { data: null } as State,
+        actions: () => ({
+          setData: (state, data: number) => ({ ...state, data }),
+        }),
+        effects: ({ task, actions }) => ({
+          // Mix of action returns and void returns
+          fetchData: task(
+            async () => 42,
+            {
+              // Returns void - listener only, no dispatch
+              start: () => {
+                sideEffects.push("started");
+              },
+              // Returns action - auto-dispatched
+              done: (result) => actions.setData(result),
+              // Returns void - listener only
+              end: (err, result) => {
+                sideEffects.push(`ended: err=${err}, result=${result}`);
+              },
+            }
+          ),
+        }),
+      });
+
+      await model.fetchData();
+
+      // Verify side effects ran
+      expect(sideEffects).toEqual(["started", "ended: err=undefined, result=42"]);
+
+      // Verify done action was dispatched
+      expect(model.getState().data).toBe(42);
+    });
+
+    it("should not dispatch when callback returns void", async () => {
+      const app = domain("app");
+
+      interface State {
+        count: number;
+      }
+
+      const model = app.model({
+        name: "counter",
+        initial: { count: 0 } as State,
+        actions: () => ({
+          increment: (state) => ({ ...state, count: state.count + 1 }),
+        }),
+        effects: ({ task }) => ({
+          // All callbacks return void - nothing should be dispatched
+          doNothing: task(
+            async () => "result",
+            {
+              start: () => { /* void */ },
+              done: () => { /* void */ },
+              end: () => { /* void */ },
+            }
+          ),
+        }),
+      });
+
+      const dispatchSpy = vi.fn();
+      model.onDispatch(dispatchSpy);
+
+      await model.doNothing();
+
+      // No actions should have been dispatched
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(model.getState().count).toBe(0);
     });
   });
 

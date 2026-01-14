@@ -618,11 +618,11 @@ const app = domain("app").use(logging);
 
 #### Plugin Hooks
 
-| Hook | Signature | Purpose |
-|------|-----------|---------|
-| `filter` | `(config) => boolean` | Skip hooks if returns false |
-| `pre` | `(config) => Config \| void` | Transform config before creation |
-| `post` | `(instance, config) => void` | Side effects after creation (receives both instance and config) |
+| Hook     | Signature                    | Purpose                                                         |
+| -------- | ---------------------------- | --------------------------------------------------------------- |
+| `filter` | `(config) => boolean`        | Skip hooks if returns false                                     |
+| `pre`    | `(config) => Config \| void` | Transform config before creation                                |
+| `post`   | `(instance, config) => void` | Side effects after creation (receives both instance and config) |
 
 #### Hook Targets
 
@@ -641,7 +641,9 @@ const devTools = domainPlugin({
       if (devToolsExtension) {
         const devTools = devToolsExtension.connect({ name: store.name });
         devTools.init(store.getState());
-        store.onChange(() => devTools.send({ type: "STATE_UPDATE" }, store.getState()));
+        store.onChange(() =>
+          devTools.send({ type: "STATE_UPDATE" }, store.getState())
+        );
       }
     },
   },
@@ -823,7 +825,7 @@ events.on(
 
 ### Models — Stores with Bound Methods
 
-Models are a higher-level abstraction that combines stores with bound action and thunk methods. Instead of manually dispatching actions, you call methods directly on the model.
+Models are a higher-level abstraction that combines stores with bound action and effect methods. Instead of manually dispatching actions, you call methods directly on the model.
 
 **The key insight: Models ARE stores.** They extend `MutableStore`, so they work everywhere stores work — `useSelector`, `derived()`, plugins, etc.
 
@@ -862,31 +864,39 @@ const count = useSelector(counter);
 const doubled = app.derived("doubled", [counter], (n) => n * 2);
 ```
 
-**With async thunks:**
+**With async effects and the `task()` helper:**
 
 ```ts
 const todos = app.model({
   name: "todos",
-  initial: { items: [], loading: false },
+  initial: { items: [], loading: false, error: null },
   actions: (ctx) => ({
     setLoading: (state, loading: boolean) => ({ ...state, loading }),
     setItems: (state, items: Todo[]) => ({ ...state, items, loading: false }),
+    setError: (state, error: string) => ({ ...state, error, loading: false }),
     reset: ctx.reducers.reset,
   }),
-  // Thunks receive full context in closure - just write regular functions!
-  thunks: ({ actions, dispatch, getState, domain, initial }) => ({
-    fetchTodos: async () => {
-      dispatch(actions.setLoading(true));
-      const api = domain.get(ApiModule);
-      const items = await api.fetchTodos();
-      dispatch(actions.setItems(items));
-      return items;
-    },
+  // Effects receive full context — use task() for async lifecycle management
+  effects: ({ task, actions, dispatch, getState, domain, initial }) => ({
+    // task() wraps async operations with lifecycle dispatching
+    fetchTodos: task(
+      async () => {
+        const api = domain.get(ApiModule);
+        return await api.fetchTodos();
+      },
+      {
+        start: () => actions.setLoading(true), // Before async starts
+        done: (items) => actions.setItems(items), // On success
+        fail: (err) => actions.setError(err.message), // On error (re-throws)
+        end: (err, result) => actions.setLoading(false), // Always runs
+      }
+    ),
+
+    // Regular effects without task() — manual control
     resetToInitial: () => {
       dispatch(actions.reset());
     },
     addIfNotLoading: (item: Todo) => {
-      // getState() always returns current state
       if (!getState().loading) {
         dispatch(actions.setItems([...getState().items, item]));
       }
@@ -894,10 +904,52 @@ const todos = app.model({
   }),
 });
 
-// Call thunks directly - they're just regular methods
+// Call effects directly - they're just regular methods
 await todos.fetchTodos();
 todos.resetToInitial();
 todos.addIfNotLoading({ id: 1, title: "New" });
+```
+
+**Using `task()` with promises inline:**
+
+```ts
+effects: ({ task, actions }) => ({
+  quickFetch: async () => {
+    // Wrap any promise with lifecycle dispatching
+    const data = await task(
+      fetch("/api/data").then((r) => r.json()),
+      {
+        done: (d) => actions.setData(d),
+        fail: (e) => actions.setError(e.message),
+      }
+    );
+    return data;
+  },
+});
+```
+
+**Callbacks can return `void` for listener-only behavior:**
+
+```ts
+effects: ({ task, actions, domain }) => ({
+  syncData: task(
+    async () => { ... },
+    {
+      // Return Action → auto-dispatched to this model
+      done: (data) => actions.setData(data),
+
+      // Return void → listener only, manual control
+      start: () => {
+        console.log("Syncing...");
+        domain.dispatch({ type: "SYNC_START" });
+        otherModel.setLoading(true);
+      },
+      end: (err, result) => {
+        console.log(err ? "Failed" : "Success", result);
+      },
+    }
+  ),
+});
 ```
 
 **Handle domain actions with `ctx.fallback()`:**
@@ -1073,7 +1125,10 @@ interface DomainPluginConfig {
   store?: {
     filter?: (config: StoreConfig<any, any>) => boolean;
     pre?: (config: StoreConfig<any, any>) => StoreConfig<any, any> | void;
-    post?: (store: MutableStore<any, any, any>, config: StoreConfig<any, any>) => void;
+    post?: (
+      store: MutableStore<any, any, any>,
+      config: StoreConfig<any, any>
+    ) => void;
   };
   module?: {
     filter?: (definition: ModuleDef<any, any>) => boolean;
@@ -1089,6 +1144,7 @@ interface DomainConfig {
 ```
 
 **Key rules:**
+
 - `filter` skips pre/post hooks if returns false (useful with meta system)
 - `pre` hooks can return new config (transform) or void (keep original)
 - `post` hooks receive both the instance and config; must return void (side effects only)
@@ -1393,14 +1449,14 @@ const userStore = app.store(
 
 #### `domain.model(config)`
 
-Create a model — a store with bound action and thunk methods. Models ARE stores, so they work with `useSelector`, `derived()`, and any store-based API.
+Create a model — a store with bound action and effect methods. Models ARE stores, so they work with `useSelector`, `derived()`, and any store-based API.
 
 ```ts
-interface ModelConfig<TState, TActionMap, TThunkMap> {
+interface ModelConfig<TState, TActionMap, TEffectsMap> {
   name: string;
   initial: TState;
   actions: (ctx: ModelActionContext<TState>) => TActionMap;
-  thunks?: (ctx: ModelThunkContext<TState, TActionMap>) => TThunkMap;
+  effects?: (ctx: ModelEffectsContext<TState, TActionMap>) => TEffectsMap;
   equals?: Equality<TState>;
 }
 
@@ -1412,12 +1468,24 @@ interface ModelActionContext<TState> {
   fallback: (handler: (state: TState, action: DomainAction) => TState) => void;
 }
 
-interface ModelThunkContext<TState, TActionMap> {
+interface ModelEffectsContext<TState, TActionMap> {
+  task: TaskHelper; // Wrap async operations with lifecycle dispatching
   actions: ActionCreators<TActionMap>; // Type-safe action creators
   initial: TState; // The initial state value
   dispatch: Dispatch; // Dispatch actions to this model's store
   getState: () => TState; // Get current state (always fresh)
   domain: Domain; // Parent domain (for modules, other stores)
+}
+
+// Each callback can return Action (auto-dispatched) or void (listener only)
+interface TaskOptions<TResult, TError = Error> {
+  start?: () => Action | void; // Before async starts
+  done?: (result: TResult) => Action | void; // On success
+  fail?: (error: TError) => Action | void; // On failure (error re-thrown)
+  end?: (
+    error: TError | undefined,
+    result: TResult | undefined
+  ) => Action | void; // Always runs
 }
 ```
 
@@ -1431,11 +1499,20 @@ const counter = app.model({
     reset: ctx.reducers.reset,
     set: ctx.reducers.set,
   }),
-  // Thunks: context (actions, dispatch, getState, domain) captured in closure
-  thunks: ({ actions, dispatch }) => ({
-    incrementAsync: async () => {
+  // Effects: context (task, actions, dispatch, getState, domain) captured in closure
+  effects: ({ task, actions, dispatch }) => ({
+    // Using task() for lifecycle management
+    incrementAsync: task(
+      async () => {
+        await delay(100);
+        return 1;
+      },
+      { done: (n) => actions.add(n) }
+    ),
+    // Manual control without task()
+    resetLater: async () => {
       await delay(100);
-      dispatch(actions.increment());
+      dispatch(actions.reset());
     },
   }),
   equals: "strict", // Optional equality strategy
@@ -1447,7 +1524,7 @@ counter.add(5);
 counter.reset();
 counter.set(100);
 
-// Bound thunk methods
+// Bound effect methods
 await counter.incrementAsync();
 
 // Store properties (model IS a store)
@@ -2093,7 +2170,9 @@ import type {
   ModelWithMethods,
   ModelConfig,
   ModelActionContext,
-  ModelThunkContext,
+  ModelEffectsContext,
+  TaskOptions,
+  TaskHelper,
 
   // Store config
   StoreConfig,
@@ -2140,7 +2219,7 @@ If you're coming from Redux, FluxDom will feel familiar — but with less ceremo
 | **Reducers**     | `(state, action) => newState` | `(state, action) => newState` ✅ Same         |
 | **Dispatch**     | `store.dispatch(action)`      | `store.dispatch(action)` ✅ Same              |
 | **Selectors**    | `useSelector(state => ...)`   | `useSelector(store, state => ...)` ✅ Similar |
-| **Async Logic**  | Redux Thunk middleware        | Built-in thunks ✅ Similar                    |
+| **Async Logic**  | Redux Thunk middleware        | Built-in effects with `task()` ✅ Similar     |
 | **Immutability** | Required                      | Required ✅ Same                              |
 
 **Your Redux knowledge transfers directly.** Actions, reducers, dispatch — it all works the same way.
@@ -2260,7 +2339,7 @@ function App() {
 | "Testing is painful"        | Built-in DI with `.override()` for mocking                   |
 | "Too many re-renders"       | Fine-grained subscriptions + equality strategies + `batch()` |
 | "Providers everywhere"      | No providers needed — import and use                         |
-| "Async logic is scattered"  | Thunks with full context at store & domain level             |
+| "Async logic is scattered"  | Effects with `task()` for lifecycle management               |
 | "I can't debug anything"    | Event bubbling + `onAnyDispatch` sees all                    |
 
 ---

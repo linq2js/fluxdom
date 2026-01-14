@@ -16,8 +16,8 @@ import {
   ModuleDef,
   ModelActionContext,
   ModelActionMap,
-  ModelThunkMap,
-  ModelThunkContext,
+  ModelEffectsMap,
+  ModelEffectsContext,
   ModelWithMethods,
   MapActionsUnion,
   StoreConfig,
@@ -235,7 +235,7 @@ function createDomain<TAction extends Action>(
   const model = <
     TState,
     TActionMap extends ModelActionMap<TState>,
-    TThunkMap extends ModelThunkMap<
+    TEffectsMap extends ModelEffectsMap<
       TState,
       MapActionsUnion<TState, TActionMap>,
       TAction
@@ -244,16 +244,16 @@ function createDomain<TAction extends Action>(
     name: string;
     initial: TState;
     actions: (ctx: ModelActionContext<TState>) => TActionMap;
-    thunks?: (
-      ctx: ModelThunkContext<
+    effects?: (
+      ctx: ModelEffectsContext<
         TState,
         TActionMap,
         MapActionsUnion<TState, TActionMap>,
         TAction
       >
-    ) => TThunkMap;
+    ) => TEffectsMap;
     equals?: Equality<TState>;
-  }): ModelWithMethods<TState, TActionMap, TThunkMap, TAction> => {
+  }): ModelWithMethods<TState, TActionMap, TEffectsMap, TAction> => {
     // Create a store factory that delegates to our store() method
     const createStoreForModel = (
       storeName: string,
@@ -262,7 +262,7 @@ function createDomain<TAction extends Action>(
       equals?: Equality<TState>
     ) => store({ name: storeName, initial: initialState, reducer, equals });
 
-    return buildModel<TState, TActionMap, TThunkMap, TAction>(
+    return buildModel<TState, TActionMap, TEffectsMap, TAction>(
       createStoreForModel,
       { ...config, domain: domainObject }
     );

@@ -56,7 +56,7 @@ export const appModel = appDomain.model({
       if (level === "basic") draft.isUnlocked = true;
     }),
   }),
-  thunks: ({ actions, dispatch, getState }) => ({
+  effects: ({ actions, dispatch, getState }) => ({
     init: async () => {
       dispatch(actions.setLoading(true));
       try {

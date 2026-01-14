@@ -38,6 +38,7 @@ export type {
 // Utilities
 export { emitter } from "./emitter";
 export { withUse } from "./withUse";
+export { isPromiseLike } from "./utils";
 
 // Equality utilities
 export {

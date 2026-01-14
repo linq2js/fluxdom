@@ -5,7 +5,7 @@
  * - Types: Data models
  * - Modules: Injectable services (API layer)
  * - Domain: The root container for models and modules
- * - Model: State container with bound actions and thunks
+ * - Model: State container with bound actions and effects
  *
  * @module domain
  */
@@ -119,7 +119,7 @@ const initialState: TodoState = {
 };
 
 /**
- * Todo Model - state container with bound action and thunk methods.
+ * Todo Model - state container with bound action and effect methods.
  *
  * Actions mutate state (wrapped with Immer internally if needed):
  * - setLoading(): Mark loading state
@@ -131,7 +131,7 @@ const initialState: TodoState = {
  * - remove(id): Remove a todo
  * - reset(): Reset to initial state
  *
- * Thunks handle async operations:
+ * Effects handle async operations (with lifecycle via task()):
  * - fetchTodos(): Fetch todos from API
  * - addTodo(title): Create a todo via API
  */
@@ -190,36 +190,39 @@ export const todoModel = appDomain.model({
     reset: ctx.reducers.reset,
   }),
 
-  thunks: ({ actions, dispatch, domain }) => ({
+  effects: ({ task, actions, domain }) => ({
     /**
      * Fetches todos from the API and updates the model.
+     * Uses task() for automatic lifecycle dispatching.
      */
-    fetchTodos: async () => {
-      dispatch(actions.setLoading());
-      const api = domain.get(TodoApiModule);
-
-      try {
-        const todos = await api.getTodos();
-        dispatch(actions.setItems(todos));
-      } catch (err) {
-        dispatch(actions.setError(String(err)));
+    fetchTodos: task(
+      async () => {
+        const api = domain.get(TodoApiModule);
+        return await api.getTodos();
+      },
+      {
+        start: () => actions.setLoading(),
+        done: (todos) => actions.setItems(todos),
+        fail: (err) => actions.setError(String(err)),
       }
-    },
+    ),
 
     /**
      * Creates a new todo via the API.
+     * Uses task() for automatic lifecycle dispatching.
      */
-    addTodo: async (title: string) => {
-      dispatch(actions.setLoading());
-      const api = domain.get(TodoApiModule);
-
-      try {
+    addTodo: task(
+      async (title: string) => {
+        const api = domain.get(TodoApiModule);
         const newTodo = await api.addTodo(title);
         // JSONPlaceholder always returns ID 201, so we generate a unique ID
-        dispatch(actions.addItem({ ...newTodo, id: Date.now() }));
-      } catch (err) {
-        dispatch(actions.setError(String(err)));
+        return { ...newTodo, id: Date.now() };
+      },
+      {
+        start: () => actions.setLoading(),
+        done: (item) => actions.addItem(item),
+        fail: (err) => actions.setError(String(err)),
       }
-    },
+    ),
   }),
 });

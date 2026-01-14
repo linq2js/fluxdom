@@ -49,7 +49,7 @@ export const filesModel = filesDomain.model({
       draft.isLoading = false;
     }),
   }),
-  thunks: ({ actions, dispatch, getState }) => ({
+  effects: ({ actions, dispatch, getState }) => ({
     loadFiles: async (folderId: string | null) => {
       dispatch(actions.setLoading(true));
       dispatch(actions.setFolder(folderId));

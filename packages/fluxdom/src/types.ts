@@ -894,35 +894,110 @@ export type ModelActionCreators<TActionMap extends ModelActionMap<any>> = {
   [K in keyof TActionMap & string]: ModelActionCreator<K, TActionMap[K]>;
 };
 
+// =============================================================================
+// Task Helper Types (for effects)
+// =============================================================================
+
 /**
- * Context provided to thunk builder in model().
- * Thunks are regular functions that capture this context in closure.
+ * Options for the task() helper in effects.
+ * Provides lifecycle hooks for async operations.
+ *
+ * Each callback can return:
+ * - `Action` → dispatched automatically to this model's store
+ * - `void` → listener only, no auto-dispatch (user handles manually)
  *
  * @example
  * ```ts
- * thunks: ({ actions, dispatch, getState, domain }) => ({
- *   fetchData: async () => {
- *     dispatch(actions.setLoading());
- *     const data = await fetch(...);
- *     dispatch(actions.setData(data));
- *   },
+ * // Return action → auto-dispatched
+ * start: () => actions.setLoading(true)
+ *
+ * // Return void → manual control
+ * start: () => {
+ *   domain.dispatch({ type: 'SYNC_START' });
+ *   otherModel.setLoading(true);
+ * }
+ * ```
+ */
+export interface TaskOptions<TResult, TError = Error> {
+  /** Called before async operation starts. Return action to dispatch, or void for manual control. */
+  start?: () => Action | void;
+  /** Called when operation succeeds. Return action to dispatch, or void for manual control. */
+  done?: (result: TResult) => Action | void;
+  /** Called when operation fails (error is re-thrown after). Return action to dispatch, or void for manual control. */
+  fail?: (error: TError) => Action | void;
+  /** Called after done OR fail. Return action to dispatch, or void for manual control. */
+  end?: (
+    error: TError | undefined,
+    result: TResult | undefined
+  ) => Action | void;
+}
+
+/**
+ * Task helper for wrapping async operations with lifecycle dispatching.
+ * Accepts any PromiseLike (native Promises, Bluebird, jQuery Deferreds, etc.)
+ */
+export interface TaskHelper {
+  /**
+   * Wrap a promise/thenable - dispatches lifecycle actions.
+   * @returns The same promise result
+   */
+  <TResult>(
+    promise: PromiseLike<TResult>,
+    options: TaskOptions<TResult>
+  ): Promise<TResult>;
+
+  /**
+   * Wrap an async function - returns function with same signature.
+   * @returns Wrapped function that dispatches lifecycle actions
+   */
+  <TArgs extends any[], TResult>(
+    fn: (...args: TArgs) => PromiseLike<TResult>,
+    options: TaskOptions<TResult>
+  ): (...args: TArgs) => Promise<TResult>;
+}
+
+// =============================================================================
+// Model Effects Types
+// =============================================================================
+
+/**
+ * Context provided to effects builder in model().
+ * Effects are regular functions that capture this context in closure.
+ *
+ * @example
+ * ```ts
+ * effects: ({ task, actions, dispatch, getState, domain }) => ({
+ *   fetchData: task(
+ *     async () => {
+ *       const api = domain.get(ApiModule);
+ *       return await api.fetch();
+ *     },
+ *     {
+ *       start: () => actions.setLoading(true),
+ *       done: (data) => actions.setData(data),
+ *       fail: (err) => actions.setError(err.message),
+ *       end: () => actions.setLoading(false),
+ *     }
+ *   ),
  *   addItem: async (title: string) => {
  *     const state = getState();
  *     if (state.loading) return;
- *     // ...
+ *     dispatch(actions.add(title));
  *   }
  * })
  * ```
  */
-export interface ModelThunkContext<
+export interface ModelEffectsContext<
   TState,
   TActionMap extends ModelActionMap<TState>,
   TActions extends Action = MapActionsUnion<TState, TActionMap>,
   TDomainAction extends Action = Action
 > {
+  /** Task helper for async operations with lifecycle dispatching */
+  task: TaskHelper;
   /** Type-safe action creators from the actions builder */
   actions: ModelActionCreators<TActionMap>;
-  /** Initial state value (for reference, e.g., reset thunks) */
+  /** Initial state value (for reference, e.g., reset effects) */
   initial: TState;
   /** Dispatch actions to this model's store */
   dispatch: Dispatch<StoreContext<TState, TActions, TDomainAction>, TActions>;
@@ -933,32 +1008,51 @@ export interface ModelThunkContext<
 }
 
 /**
- * A model thunk - regular function (not curried).
- * Context (dispatch, getState, domain) is captured from closure.
+ * A model effect - regular function (not curried).
+ * Context (task, dispatch, getState, domain) is captured from closure.
  */
-export type ModelThunk<TArgs extends any[] = any[], TResult = any> = (
+export type ModelEffect<TArgs extends any[] = any[], TResult = any> = (
   ...args: TArgs
 ) => TResult;
 
 /**
- * Map of thunks returned by thunkBuilder in model().
- * Thunks are regular functions - context is in closure.
+ * Map of effects returned by effectsBuilder in model().
+ * Effects are regular functions - context is in closure.
  *
  * Note: Type parameters kept for API compatibility with domain.model() constraints.
  */
-export type ModelThunkMap<
+export type ModelEffectsMap<
   _TState,
   _TActions extends Action,
   _TDomainAction extends Action
-> = Record<string, ModelThunk<any[], any>>;
+> = Record<string, ModelEffect<any[], any>>;
 
 /**
- * Map thunks to their bound method types.
- * Since thunks are already regular functions, this is just identity mapping.
+ * Map effects to their bound method types.
+ * Since effects are already regular functions, this is just identity mapping.
  */
-export type ModelBoundThunks<TMap> = {
+export type ModelBoundEffects<TMap> = {
   [K in keyof TMap]: TMap[K];
 };
+
+// Legacy aliases for backward compatibility
+/** @deprecated Use ModelEffectsContext instead */
+export type ModelThunkContext<
+  TState,
+  TActionMap extends ModelActionMap<TState>,
+  TActions extends Action = MapActionsUnion<TState, TActionMap>,
+  TDomainAction extends Action = Action
+> = ModelEffectsContext<TState, TActionMap, TActions, TDomainAction>;
+
+/** @deprecated Use ModelEffectsMap instead */
+export type ModelThunkMap<
+  TState,
+  TActions extends Action,
+  TDomainAction extends Action
+> = ModelEffectsMap<TState, TActions, TDomainAction>;
+
+/** @deprecated Use ModelBoundEffects instead */
+export type ModelBoundThunks<TMap> = ModelBoundEffects<TMap>;
 
 /**
  * Model base type - extends MutableStore so it can be used anywhere a store is expected.
@@ -967,22 +1061,22 @@ export type ModelBoundThunks<TMap> = {
 export type Model<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  _TThunkMap,
+  _TEffectsMap,
   TDomainAction extends Action
 > = MutableStore<TState, MapActionsUnion<TState, TActionMap>, TDomainAction>;
 
 /**
- * Full model type with bound action and thunk methods.
- * Model IS a MutableStore, plus bound action/thunk methods attached directly.
+ * Full model type with bound action and effect methods.
+ * Model IS a MutableStore, plus bound action/effect methods attached directly.
  */
 export type ModelWithMethods<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TThunkMap,
+  TEffectsMap,
   TDomainAction extends Action
-> = Model<TState, TActionMap, TThunkMap, TDomainAction> &
+> = Model<TState, TActionMap, TEffectsMap, TDomainAction> &
   ModelBoundActions<TActionMap> &
-  ModelBoundThunks<TThunkMap>;
+  ModelBoundEffects<TEffectsMap>;
 
 /**
  * Configuration options for domain.store().
@@ -1010,7 +1104,7 @@ export interface ModelConfig<
   TState,
   TActionMap extends ModelActionMap<TState>,
   TDomainAction extends Action,
-  TThunkMap extends ModelThunkMap<
+  TEffectsMap extends ModelEffectsMap<
     TState,
     MapActionsUnion<TState, TActionMap>,
     TDomainAction
@@ -1026,23 +1120,30 @@ export interface ModelConfig<
   actions: (ctx: ModelActionContext<TState, TDomainAction>) => TActionMap;
 
   /**
-   * Optional thunk builder function that returns thunk creators.
-   * Receives a context with type-safe action creators and initial state.
+   * Optional effects builder function that returns effect functions.
+   * Effects are async operations with optional lifecycle hooks via task().
    *
    * @example
    * ```ts
-   * thunks: (ctx) => ({
-   *   fetchAndSet: (url: string) => async ({ dispatch }) => {
-   *     const data = await fetch(url).then(r => r.json());
-   *     dispatch(ctx.actions.set(data)); // Type-safe!
-   *   },
-   *   reset: () => ({ dispatch }) => {
-   *     dispatch(ctx.actions.set(ctx.initial));
+   * effects: ({ task, actions, dispatch, getState, domain }) => ({
+   *   fetchTodos: task(
+   *     async () => {
+   *       const api = domain.get(ApiModule);
+   *       return await api.fetchTodos();
+   *     },
+   *     {
+   *       start: () => actions.setLoading(true),
+   *       done: (items) => actions.setItems(items),
+   *       fail: (err) => actions.setError(err.message),
+   *     }
+   *   ),
+   *   reset: () => {
+   *     dispatch(actions.setItems([]));
    *   },
    * })
    * ```
    */
-  thunks?: (ctx: ModelThunkContext<TState, TActionMap>) => TThunkMap;
+  effects?: (ctx: ModelEffectsContext<TState, TActionMap>) => TEffectsMap;
 
   /** Optional equality strategy for change detection */
   equals?: Equality<TState>;

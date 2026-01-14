@@ -3,17 +3,20 @@ import {
   MutableStore,
   ModelActionContext,
   ModelActionMap,
-  ModelThunkMap,
+  ModelEffectsMap,
   ModelWithMethods,
   MapActionsUnion,
   Equality,
   ModelFallbackHandler,
-  ModelThunkContext,
+  ModelEffectsContext,
   ModelActionCreators,
   Domain,
   StoreContext,
   Dispatch,
+  TaskHelper,
+  TaskOptions,
 } from "../types";
+import { isPromiseLike } from "../utils";
 import { withUse } from "../withUse";
 
 /**
@@ -61,14 +64,14 @@ function createModelActions<
 }
 
 /**
- * Create a model from a store, action map, and optional thunk map.
- * Model IS the store with bound action/thunk methods attached.
+ * Create a model from a store, action map, and optional effects map.
+ * Model IS the store with bound action/effect methods attached.
  * This means models can be used anywhere a store is expected (useSelector, derived, etc.)
  */
 export function createModel<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TThunkMap extends ModelThunkMap<
+  TEffectsMap extends ModelEffectsMap<
     TState,
     MapActionsUnion<TState, TActionMap>,
     TDomainAction
@@ -81,8 +84,8 @@ export function createModel<
     TDomainAction
   >,
   actionCreators: Record<string, (...args: any[]) => any>,
-  thunkMap: TThunkMap = {} as TThunkMap
-): ModelWithMethods<TState, TActionMap, TThunkMap, TDomainAction> {
+  effectsMap: TEffectsMap = {} as TEffectsMap
+): ModelWithMethods<TState, TActionMap, TEffectsMap, TDomainAction> {
   // Bind actions to store.dispatch
   const boundActions: Record<string, (...args: any[]) => void> = {};
   for (const [key, creator] of Object.entries(actionCreators)) {
@@ -91,21 +94,21 @@ export function createModel<
     };
   }
 
-  // Thunks are already bound (context captured in closure)
+  // Effects are already bound (context captured in closure)
   // Just attach them directly to the model
 
   // Model IS the store with bound methods attached
-  // Spread store properties + bound actions + thunks
+  // Spread store properties + bound actions + effects
   const model = withUse({
     ...store,
     ...boundActions,
-    ...thunkMap,
+    ...effectsMap,
   });
 
   return model as ModelWithMethods<
     TState,
     TActionMap,
-    TThunkMap,
+    TEffectsMap,
     TDomainAction
   >;
 }
@@ -140,25 +143,80 @@ export function createActionContext<TState, TDomainAction extends Action>(
 }
 
 /**
+ * Create a task helper that wraps async operations with lifecycle dispatching.
+ * Callbacks can return Action (auto-dispatched) or void (listener only).
+ * Accepts any PromiseLike (native Promises, Bluebird, jQuery Deferreds, etc.)
+ */
+function createTaskHelper(dispatch: (action: Action) => void): TaskHelper {
+  // Helper to dispatch only if callback returns an action
+  const maybeDispatch = (action: Action | void) => {
+    if (action) dispatch(action);
+  };
+
+  return (<TArgs extends any[], TResult>(
+    promiseOrFn:
+      | PromiseLike<TResult>
+      | ((...args: TArgs) => PromiseLike<TResult>),
+    options: TaskOptions<TResult>
+  ): any => {
+    const { start, done, fail, end } = options;
+
+    // If it's a thenable, wrap it directly
+    if (isPromiseLike<TResult>(promiseOrFn)) {
+      if (start) maybeDispatch(start());
+
+      return Promise.resolve(promiseOrFn)
+        .then((result) => {
+          if (done) maybeDispatch(done(result));
+          if (end) maybeDispatch(end(undefined, result));
+          return result;
+        })
+        .catch((error) => {
+          if (fail) maybeDispatch(fail(error));
+          if (end) maybeDispatch(end(error, undefined));
+          throw error; // Re-throw
+        });
+    }
+
+    // If it's a function, return wrapped function with same signature
+    return (...args: TArgs): Promise<TResult> => {
+      if (start) maybeDispatch(start());
+
+      return Promise.resolve(promiseOrFn(...args))
+        .then((result) => {
+          if (done) maybeDispatch(done(result));
+          if (end) maybeDispatch(end(undefined, result));
+          return result;
+        })
+        .catch((error) => {
+          if (fail) maybeDispatch(fail(error));
+          if (end) maybeDispatch(end(error, undefined));
+          throw error; // Re-throw
+        });
+    };
+  }) as TaskHelper;
+}
+
+/**
  * Configuration for buildModel.
  */
 export interface BuildModelConfig<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TThunkMap,
+  TEffectsMap,
   TDomainAction extends Action = Action
 > {
   name: string;
   initial: TState;
   actions: (ctx: ModelActionContext<TState, TDomainAction>) => TActionMap;
-  thunks?: (
-    ctx: ModelThunkContext<
+  effects?: (
+    ctx: ModelEffectsContext<
       TState,
       TActionMap,
       MapActionsUnion<TState, TActionMap>,
       TDomainAction
     >
-  ) => TThunkMap;
+  ) => TEffectsMap;
   equals?: Equality<TState>;
   /** Parent domain - passed internally by domain.model() */
   domain: Domain<TDomainAction>;
@@ -171,7 +229,7 @@ export interface BuildModelConfig<
 export function buildModel<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TThunkMap extends ModelThunkMap<
+  TEffectsMap extends ModelEffectsMap<
     TState,
     MapActionsUnion<TState, TActionMap>,
     TDomainAction
@@ -184,13 +242,13 @@ export function buildModel<
     reducer: (state: TState, action: any) => TState,
     equals?: Equality<TState>
   ) => MutableStore<TState, any, TDomainAction>,
-  config: BuildModelConfig<TState, TActionMap, TThunkMap, TDomainAction>
-): ModelWithMethods<TState, TActionMap, TThunkMap, TDomainAction> {
+  config: BuildModelConfig<TState, TActionMap, TEffectsMap, TDomainAction>
+): ModelWithMethods<TState, TActionMap, TEffectsMap, TDomainAction> {
   const {
     name,
     initial,
     actions: actionBuilder,
-    thunks: thunkBuilder,
+    effects: effectsBuilder,
     equals,
     domain,
   } = config;
@@ -213,13 +271,17 @@ export function buildModel<
   // 4. Create the store with optional equality
   const store = createStore(name, initial, reducer, equals);
 
-  // 5. Create thunk context with full context for closure capture
-  const thunkContext: ModelThunkContext<
+  // 5. Create task helper with dispatch
+  const task = createTaskHelper(store.dispatch);
+
+  // 6. Create effects context with full context for closure capture
+  const effectsContext: ModelEffectsContext<
     TState,
     TActionMap,
     MapActionsUnion<TState, TActionMap>,
     TDomainAction
   > = {
+    task,
     actions: actionCreators as ModelActionCreators<TActionMap>,
     initial,
     dispatch: store.dispatch as Dispatch<
@@ -230,13 +292,13 @@ export function buildModel<
     domain,
   };
 
-  // 6. Get thunk map if provided (thunks capture context in closure)
-  const thunkMap = thunkBuilder?.(thunkContext) ?? ({} as TThunkMap);
+  // 7. Get effects map if provided (effects capture context in closure)
+  const effectsMap = effectsBuilder?.(effectsContext) ?? ({} as TEffectsMap);
 
-  // 7. Create and return the model
-  return createModel<TState, TActionMap, TThunkMap, TDomainAction>(
+  // 8. Create and return the model
+  return createModel<TState, TActionMap, TEffectsMap, TDomainAction>(
     store,
     actionCreators,
-    thunkMap
+    effectsMap
   );
 }

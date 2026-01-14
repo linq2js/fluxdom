@@ -188,28 +188,32 @@ export const todoModel = appDomain.model({
     };
   },
 
-  thunks: ({ domain }) => ({
-    fetchTodos: async () => {
-      todoModel.setLoading();
-      const api = domain.get(TodoApiModule);
-
-      try {
-        const todos = await api.getTodos();
-        todoModel.setItems(todos);
-      } catch (err) {
-        todoModel.setError(String(err));
+  effects: ({ task, domain, actions }) => ({
+    // Using task() with lifecycle hooks
+    fetchTodos: task(
+      async () => {
+        const api = domain.get(TodoApiModule);
+        return await api.getTodos();
+      },
+      {
+        start: () => actions.setLoading(),
+        done: (todos) => actions.setItems(todos),
+        fail: (err) => actions.setError(String(err)),
       }
-    },
-    addTodo: async (title: string) => {
-      todoModel.setLoading();
-      const api = domain.get(TodoApiModule);
+    ),
 
-      try {
+    // Using task() for another effect
+    addTodo: task(
+      async (title: string) => {
+        const api = domain.get(TodoApiModule);
         const newTodo = await api.addTodo(title);
-        todoModel.addItem({ ...newTodo, id: Date.now() });
-      } catch (err) {
-        todoModel.setError(String(err));
+        return { ...newTodo, id: Date.now() };
+      },
+      {
+        start: () => actions.setLoading(),
+        done: (todo) => actions.addItem(todo),
+        fail: (err) => actions.setError(String(err)),
       }
-    },
+    ),
   }),
 });
