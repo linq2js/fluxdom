@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { domain } from "./domain";
-import type { StoreContext, Action } from "../types";
+// StoreContext not needed - thunks use closure for context
 
 describe("model()", () => {
   describe("basic usage", () => {
@@ -129,8 +129,8 @@ describe("model()", () => {
         actions: () => ({
           add: (state, n: number) => state + n,
         }),
-        thunks: () => ({
-          addAsync: (n: number) => async ({ dispatch }: StoreContext<number>) => {
+        thunks: ({ dispatch }) => ({
+          addAsync: async (n: number) => {
             await Promise.resolve();
             dispatch({ type: "add", args: [n] });
           },
@@ -157,16 +157,16 @@ describe("model()", () => {
           add: (state, n: number) => state + n,
           set: (_state, value: number) => value,
         }),
-        thunks: (ctx) => ({
-          // Use ctx.actions for type-safe dispatch
-          incrementTwice: () => ({ dispatch }) => {
-            dispatch(ctx.actions.increment());
-            dispatch(ctx.actions.increment());
+        thunks: ({ actions, dispatch, getState }) => ({
+          // Use actions for type-safe dispatch
+          incrementTwice: () => {
+            dispatch(actions.increment());
+            dispatch(actions.increment());
           },
-          addAndDouble: (n: number) => ({ dispatch, getState }) => {
-            dispatch(ctx.actions.add(n));
+          addAndDouble: (n: number) => {
+            dispatch(actions.add(n));
             const current = getState();
-            dispatch(ctx.actions.set(current * 2));
+            dispatch(actions.set(current * 2));
           },
         }),
       });
@@ -191,9 +191,9 @@ describe("model()", () => {
           increment: (state) => state + 1,
           set: (_state, value: number) => value,
         }),
-        thunks: (ctx) => ({
-          reset: () => ({ dispatch }) => {
-            dispatch(ctx.actions.set(ctx.initial));
+        thunks: ({ actions, dispatch, initial }) => ({
+          reset: () => {
+            dispatch(actions.set(initial));
           },
         }),
       });
@@ -221,12 +221,12 @@ describe("model()", () => {
           setLoading: (state, loading: boolean) => ({ ...state, loading }),
           setData: (state, data: number) => ({ ...state, data }),
         }),
-        thunks: (ctx) => ({
-          fetchData: () => async ({ dispatch }) => {
-            dispatch(ctx.actions.setLoading(true));
+        thunks: ({ actions, dispatch }) => ({
+          fetchData: async () => {
+            dispatch(actions.setLoading(true));
             await Promise.resolve();
-            dispatch(ctx.actions.setData(42));
-            dispatch(ctx.actions.setLoading(false));
+            dispatch(actions.setData(42));
+            dispatch(actions.setLoading(false));
           },
         }),
       });
@@ -246,8 +246,8 @@ describe("model()", () => {
         actions: () => ({
           set: (_state, n: number) => n,
         }),
-        thunks: () => ({
-          doubleIfLessThan: (max: number) => ({ dispatch, getState }: StoreContext<number>) => {
+        thunks: ({ dispatch, getState }) => ({
+          doubleIfLessThan: (max: number) => {
             const current = getState();
             if (current < max) {
               dispatch({ type: "set", args: [current * 2] });
@@ -282,8 +282,8 @@ describe("model()", () => {
         actions: () => ({
           increment: (state) => state + 1,
         }),
-        thunks: () => ({
-          resetAll: () => ({ domain }: StoreContext<number, any, AppAction>) => {
+        thunks: ({ domain }) => ({
+          resetAll: () => {
             domain.dispatch({ type: "GLOBAL_RESET" });
           },
         }),

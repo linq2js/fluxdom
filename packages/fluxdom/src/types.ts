@@ -1,3 +1,9 @@
+export interface DomainMeta {}
+
+export interface StoreMeta {}
+
+export interface ModuleMeta {}
+
 // --- Core Primitives ---
 
 /** Base Action interface. All actions must have a `type`. */
@@ -316,6 +322,8 @@ export interface Domain<TDomainAction extends Action = Action>
   /** Name of the domain */
   readonly name: string;
 
+  readonly meta?: DomainMeta;
+
   /** Reference to the root domain of this hierarchy (or itself if root) */
   readonly root: Domain<any>;
 
@@ -441,7 +449,7 @@ export interface Domain<TDomainAction extends Action = Action>
       TDomainAction
     > = Record<string, never>
   >(
-    config: ModelConfig<TState, TActionMap, TThunkMap, TDomainAction>
+    config: ModelConfig<TState, TActionMap, TDomainAction, TThunkMap>
   ): ModelWithMethods<TState, TActionMap, TThunkMap, TDomainAction>;
 }
 
@@ -456,6 +464,8 @@ export interface Domain<TDomainAction extends Action = Action>
 export interface ModuleDef<TModule, TAction extends Action = any> {
   /** Unique name for the module (e.g. 'api', 'auth', 'logger') */
   readonly name: string;
+
+  readonly meta?: ModuleMeta;
   /**
    * Factory function to create the module instance.
    * @param domain - The root domain (always root, never a subdomain)
@@ -504,6 +514,8 @@ export interface StoreContext<
 export interface Store<TState> extends Pipeable {
   /** Name of the store */
   name: string;
+
+  meta?: StoreMeta;
 
   /** Get the current snapshot of the state. */
   getState(): TState;
@@ -786,16 +798,27 @@ export interface ModelActionContext<
    * Add a fallback handler for domain actions not handled by explicit actions.
    * Can be called multiple times - handlers are chained in order.
    *
+   * By default, the action parameter is typed to TDomainAction (the domain's action type).
+   * To handle unknown actions from plugins/middleware, specify `action: Action` explicitly.
+   *
    * @example
    * ```ts
    * app.model({
    *   name: "counter",
    *   initial: 0,
    *   actions: (ctx) => {
+   *     // Handle known domain actions (type-safe)
    *     ctx.fallback((state, action) => {
    *       if (action.type === "RESET_ALL") return 0;
    *       return state;
    *     });
+   *
+   *     // Handle unknown actions from plugins/middleware (use Action type)
+   *     ctx.fallback((state, action: Action) => {
+   *       if (action.type === "PLUGIN_ACTION") return state + 1;
+   *       return state;
+   *     });
+   *
    *     return {
    *       increment: (state) => state + 1,
    *     };
@@ -873,7 +896,23 @@ export type ModelActionCreators<TActionMap extends ModelActionMap<any>> = {
 
 /**
  * Context provided to thunk builder in model().
- * Contains action creators for type-safe dispatch within thunks.
+ * Thunks are regular functions that capture this context in closure.
+ *
+ * @example
+ * ```ts
+ * thunks: ({ actions, dispatch, getState, domain }) => ({
+ *   fetchData: async () => {
+ *     dispatch(actions.setLoading());
+ *     const data = await fetch(...);
+ *     dispatch(actions.setData(data));
+ *   },
+ *   addItem: async (title: string) => {
+ *     const state = getState();
+ *     if (state.loading) return;
+ *     // ...
+ *   }
+ * })
+ * ```
  */
 export interface ModelThunkContext<
   TState,
@@ -885,67 +924,40 @@ export interface ModelThunkContext<
   actions: ModelActionCreators<TActionMap>;
   /** Initial state value (for reference, e.g., reset thunks) */
   initial: TState;
-  /**
-   * Helper to create a typed thunk creator.
-   * Provides proper type inference for the StoreContext parameter.
-   *
-   * @example
-   * ```ts
-   * thunks: (ctx) => ({
-   *   fetchData: ctx.thunk(() => async ({ dispatch, getState }) => {
-   *     // dispatch and getState are properly typed
-   *   })
-   * })
-   * ```
-   */
-  thunk: <TArgs extends any[], TResult>(
-    creator: (
-      ...args: TArgs
-    ) => (ctx: StoreContext<TState, TActions, TDomainAction>) => TResult
-  ) => (
-    ...args: TArgs
-  ) => (ctx: StoreContext<TState, TActions, TDomainAction>) => TResult;
+  /** Dispatch actions to this model's store */
+  dispatch: Dispatch<StoreContext<TState, TActions, TDomainAction>, TActions>;
+  /** Get current state of this model's store */
+  getState: () => TState;
+  /** Parent domain (for accessing modules, other stores, etc.) */
+  domain: Domain<TDomainAction>;
 }
 
 /**
- * Thunk creator for model() — function that returns a thunk.
+ * A model thunk - regular function (not curried).
+ * Context (dispatch, getState, domain) is captured from closure.
  */
-export type ModelThunkCreator<
-  TState,
-  TActions extends Action,
-  TDomainAction extends Action,
-  TArgs extends any[] = any[],
-  TResult = any
-> = (
+export type ModelThunk<TArgs extends any[] = any[], TResult = any> = (
   ...args: TArgs
-) => (ctx: StoreContext<TState, TActions, TDomainAction>) => TResult;
+) => TResult;
 
 /**
- * Map of thunk creators returned by thunkBuilder in model().
+ * Map of thunks returned by thunkBuilder in model().
+ * Thunks are regular functions - context is in closure.
+ *
+ * Note: Type parameters kept for API compatibility with domain.model() constraints.
  */
 export type ModelThunkMap<
-  TState,
-  TActions extends Action,
-  TDomainAction extends Action
-> = Record<
-  string,
-  ModelThunkCreator<TState, TActions, TDomainAction, any[], any>
->;
+  _TState,
+  _TActions extends Action,
+  _TDomainAction extends Action
+> = Record<string, ModelThunk<any[], any>>;
 
 /**
- * Infer bound thunk method type from thunk creator.
- */
-export type ModelBoundThunk<TThunk> = TThunk extends (
-  ...args: infer TArgs
-) => (ctx: any) => infer TResult
-  ? (...args: TArgs) => TResult
-  : never;
-
-/**
- * Map all thunk creators to bound thunk methods.
+ * Map thunks to their bound method types.
+ * Since thunks are already regular functions, this is just identity mapping.
  */
 export type ModelBoundThunks<TMap> = {
-  [K in keyof TMap]: ModelBoundThunk<TMap[K]>;
+  [K in keyof TMap]: TMap[K];
 };
 
 /**
@@ -987,6 +999,8 @@ export interface StoreConfig<TState, TAction extends Action = Action> {
 
   /** Optional equality strategy for change detection */
   equals?: Equality<TState>;
+
+  meta?: StoreMeta;
 }
 
 /**
@@ -995,12 +1009,12 @@ export interface StoreConfig<TState, TAction extends Action = Action> {
 export interface ModelConfig<
   TState,
   TActionMap extends ModelActionMap<TState>,
+  TDomainAction extends Action,
   TThunkMap extends ModelThunkMap<
     TState,
     MapActionsUnion<TState, TActionMap>,
-    any
-  >,
-  TDomainAction extends Action = Action
+    TDomainAction
+  >
 > {
   /** Store name (will be prefixed with domain name) */
   name: string;
@@ -1032,4 +1046,134 @@ export interface ModelConfig<
 
   /** Optional equality strategy for change detection */
   equals?: Equality<TState>;
+
+  meta?: StoreMeta;
 }
+
+export interface DomainConfig {
+  name: string;
+  meta?: DomainMeta;
+}
+
+// =============================================================================
+// Domain Plugin Types
+// =============================================================================
+
+/**
+ * Configuration for domain plugins.
+ *
+ * Plugins can hook into domain, store, and module creation:
+ * - `pre` hooks can transform config before creation (return new config or void)
+ * - `post` hooks receive created instance for side effects (must return void)
+ *
+ * @example
+ * ```ts
+ * const logging = domainPlugin({
+ *   store: {
+ *     pre: (config) => {
+ *       console.log('[store:pre]', config.name);
+ *       // Can return modified config or void (use original)
+ *     },
+ *     post: (store) => {
+ *       console.log('[store:post]', store.getState());
+ *       // Must return void - side effects only
+ *     },
+ *   },
+ * });
+ *
+ * const app = domain("app").use(logging);
+ * ```
+ */
+/**
+ * Configuration for subdomain creation.
+ */
+export interface DomainConfig {
+  /** Subdomain name (will be prefixed with parent domain name) */
+  name: string;
+  /** Optional metadata for the subdomain */
+  meta?: DomainMeta;
+}
+
+export interface DomainPluginConfig {
+  /**
+   * Hooks for domain creation.
+   */
+  domain?: {
+    /**
+     * Filter function to determine if this plugin should run.
+     * If returns false, pre/post hooks are skipped for this domain.
+     */
+    filter?: (config: DomainConfig) => boolean;
+    /**
+     * Called before a sub-domain is created.
+     * Can return modified config or void to use original.
+     */
+    pre?: (config: DomainConfig) => DomainConfig | void;
+    /**
+     * Called after a sub-domain is created.
+     * For side effects only - must return void.
+     */
+    post?: (domain: Domain<any>, config: DomainConfig) => void;
+  };
+
+  /**
+   * Hooks for store/model creation.
+   */
+  store?: {
+    /**
+     * Filter function to determine if this plugin should run.
+     * If returns false, pre/post hooks are skipped for this store.
+     * @example
+     * ```ts
+     * // Only apply to stores with meta.persisted = true
+     * filter: (config) => config.meta?.persisted === true
+     * ```
+     */
+    filter?: (config: StoreConfig<any, any>) => boolean;
+    /**
+     * Called before a store is created.
+     * Can return modified config or void to use original.
+     */
+    pre?: (config: StoreConfig<any, any>) => StoreConfig<any, any> | void;
+    /**
+     * Called after a store is created.
+     * For side effects only - must return void.
+     */
+    post?: (
+      store: MutableStore<any, any, any>,
+      config: StoreConfig<any, any>
+    ) => void;
+  };
+
+  /**
+   * Hooks for module instantiation.
+   */
+  module?: {
+    /**
+     * Filter function to determine if this plugin should run.
+     * If returns false, pre/post hooks are skipped for this module.
+     */
+    filter?: (definition: ModuleDef<any, any>) => boolean;
+    /**
+     * Called before a module is instantiated.
+     * Can return modified definition or void to use original.
+     */
+    pre?: (definition: ModuleDef<any, any>) => ModuleDef<any, any> | void;
+    /**
+     * Called after a module is instantiated.
+     * Receives both the instance and its definition.
+     * For side effects only - must return void.
+     */
+    post?: (instance: any, definition: ModuleDef<any, any>) => void;
+  };
+}
+
+/**
+ * A domain plugin function.
+ *
+ * Created via `domainPlugin()`, applied via `domain.use()`.
+ * The generic preserves the domain's action type.
+ */
+export type DomainPlugin = <TAction extends Action>(
+  domain: Domain<TAction>
+) => Domain<TAction>;

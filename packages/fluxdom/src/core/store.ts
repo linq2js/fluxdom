@@ -7,6 +7,7 @@ import {
   OnDispatch,
   Reducer,
   StoreContext,
+  StoreMeta,
   Thunk,
 } from "../types";
 
@@ -71,7 +72,8 @@ export function createStore<
   reducer: Reducer<TState, TAction>,
   domainContext: DomainContext<TDomainAction>,
   notifyParent?: OnDispatch,
-  equals: Equality<TState> = "strict"
+  equals: Equality<TState> = "strict",
+  meta?: StoreMeta
 ): MutableStore<TState, TAction, TDomainAction> {
   // ==========================================================================
   // Closure State
@@ -212,6 +214,9 @@ export function createStore<
   const store = withUse({
     /** Store identifier (includes domain path, e.g., "app.auth.user") */
     name,
+
+    /** Optional metadata for the store */
+    meta,
 
     /** Get current state */
     getState,

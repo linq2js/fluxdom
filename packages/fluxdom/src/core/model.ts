@@ -10,6 +10,9 @@ import {
   ModelFallbackHandler,
   ModelThunkContext,
   ModelActionCreators,
+  Domain,
+  StoreContext,
+  Dispatch,
 } from "../types";
 import { withUse } from "../withUse";
 
@@ -88,20 +91,15 @@ export function createModel<
     };
   }
 
-  // Bind thunks to store.dispatch
-  const boundThunks: Record<string, (...args: any[]) => any> = {};
-  for (const [key, thunkCreator] of Object.entries(thunkMap)) {
-    boundThunks[key] = (...args: any[]) => {
-      return store.dispatch(thunkCreator(...args));
-    };
-  }
+  // Thunks are already bound (context captured in closure)
+  // Just attach them directly to the model
 
   // Model IS the store with bound methods attached
-  // Spread store properties + bound actions + bound thunks
+  // Spread store properties + bound actions + thunks
   const model = withUse({
     ...store,
     ...boundActions,
-    ...boundThunks,
+    ...thunkMap,
   });
 
   return model as ModelWithMethods<
@@ -162,6 +160,8 @@ export interface BuildModelConfig<
     >
   ) => TThunkMap;
   equals?: Equality<TState>;
+  /** Parent domain - passed internally by domain.model() */
+  domain: Domain<TDomainAction>;
 }
 
 /**
@@ -192,6 +192,7 @@ export function buildModel<
     actions: actionBuilder,
     thunks: thunkBuilder,
     equals,
+    domain,
   } = config;
 
   // 1. Create action context with helpers (collects fallback handlers)
@@ -212,7 +213,7 @@ export function buildModel<
   // 4. Create the store with optional equality
   const store = createStore(name, initial, reducer, equals);
 
-  // 5. Create thunk context with action creators, initial state, and thunk helper
+  // 5. Create thunk context with full context for closure capture
   const thunkContext: ModelThunkContext<
     TState,
     TActionMap,
@@ -221,11 +222,15 @@ export function buildModel<
   > = {
     actions: actionCreators as ModelActionCreators<TActionMap>,
     initial,
-    // Identity function that provides proper type inference for thunk creators
-    thunk: (creator) => creator,
+    dispatch: store.dispatch as Dispatch<
+      StoreContext<TState, MapActionsUnion<TState, TActionMap>, TDomainAction>,
+      MapActionsUnion<TState, TActionMap>
+    >,
+    getState: store.getState,
+    domain,
   };
 
-  // 6. Get thunk map if provided (pass thunk context)
+  // 6. Get thunk map if provided (thunks capture context in closure)
   const thunkMap = thunkBuilder?.(thunkContext) ?? ({} as TThunkMap);
 
   // 7. Create and return the model

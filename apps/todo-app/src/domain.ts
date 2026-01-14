@@ -190,36 +190,36 @@ export const todoModel = appDomain.model({
     reset: ctx.reducers.reset,
   }),
 
-  thunks: (ctx) => ({
+  thunks: ({ actions, dispatch, domain }) => ({
     /**
      * Fetches todos from the API and updates the model.
      */
-    fetchTodos: ctx.thunk(() => async ({ dispatch, domain }) => {
-      dispatch(ctx.actions.setLoading());
+    fetchTodos: async () => {
+      dispatch(actions.setLoading());
       const api = domain.get(TodoApiModule);
 
       try {
         const todos = await api.getTodos();
-        dispatch(ctx.actions.setItems(todos));
+        dispatch(actions.setItems(todos));
       } catch (err) {
-        dispatch(ctx.actions.setError(String(err)));
+        dispatch(actions.setError(String(err)));
       }
-    }),
+    },
 
     /**
      * Creates a new todo via the API.
      */
-    addTodo: ctx.thunk((title: string) => async ({ dispatch, domain }) => {
-      dispatch(ctx.actions.setLoading());
+    addTodo: async (title: string) => {
+      dispatch(actions.setLoading());
       const api = domain.get(TodoApiModule);
 
       try {
         const newTodo = await api.addTodo(title);
         // JSONPlaceholder always returns ID 201, so we generate a unique ID
-        dispatch(ctx.actions.addItem({ ...newTodo, id: Date.now() }));
+        dispatch(actions.addItem({ ...newTodo, id: Date.now() }));
       } catch (err) {
-        dispatch(ctx.actions.setError(String(err)));
+        dispatch(actions.setError(String(err)));
       }
-    }),
+    },
   }),
 });

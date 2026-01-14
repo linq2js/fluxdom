@@ -1,5 +1,6 @@
 import { module } from "./module";
 import { domain } from "./domain";
+import { Action } from "../types";
 
 // =============================================================================
 // Types
@@ -93,7 +94,7 @@ export const TodoApiModule = module<ApiService>("todo-api", () => ({
  * - Modules (injectable services)
  * - Action dispatching and routing
  */
-export const appDomain = domain("app");
+export const appDomain = domain<{ type: "RESET_ALL" }>("app");
 
 // =============================================================================
 // Todo Model
@@ -127,54 +128,68 @@ export const todoModel = appDomain.model({
   name: "todos",
   initial: initialState,
 
-  actions: (ctx) => ({
-    setLoading: (state: TodoState): TodoState => ({
-      ...state,
-      loading: true,
-      error: null,
-    }),
-    setItems: (state: TodoState, items: Todo[]): TodoState => ({
-      ...state,
-      loading: false,
-      items,
-    }),
-    setError: (state: TodoState, error: string): TodoState => ({
-      ...state,
-      loading: false,
-      error,
-    }),
-    add: (state: TodoState, title: string): TodoState => ({
-      ...state,
-      items: [
-        {
-          userId: 1,
-          id: Date.now(),
-          title,
-          completed: false,
-        },
-        ...state.items,
-      ],
-    }),
-    addItem: (state: TodoState, item: Todo): TodoState => ({
-      ...state,
-      loading: false,
-      items: [item, ...state.items],
-    }),
-    toggle: (state: TodoState, id: number): TodoState => ({
-      ...state,
-      items: state.items.map((t) =>
-        t.id === id ? { ...t, completed: !t.completed } : t
-      ),
-    }),
-    remove: (state: TodoState, id: number): TodoState => ({
-      ...state,
-      items: state.items.filter((t) => t.id !== id),
-    }),
-    reset: ctx.reducers.reset,
-  }),
+  actions: (ctx) => {
+    // Handle known domain actions (action type inferred from domain<{ type: "RESET_ALL" }>)
+    ctx.fallback((state, action) => {
+      if (action.type === "RESET_ALL") return initialState;
+      return state;
+    });
 
-  thunks: (ctx) => ({
-    fetchTodos: ctx.thunk(() => async ({ domain }) => {
+    // Handle unknown actions from plugins/middleware by specifying `action: Action`
+    ctx.fallback((state, action: Action) => {
+      if (action.type === "RESET_SOME") return initialState;
+      return state;
+    });
+
+    return {
+      setLoading: (state: TodoState): TodoState => ({
+        ...state,
+        loading: true,
+        error: null,
+      }),
+      setItems: (state: TodoState, items: Todo[]): TodoState => ({
+        ...state,
+        loading: false,
+        items,
+      }),
+      setError: (state: TodoState, error: string): TodoState => ({
+        ...state,
+        loading: false,
+        error,
+      }),
+      add: (state: TodoState, title: string): TodoState => ({
+        ...state,
+        items: [
+          {
+            userId: 1,
+            id: Date.now(),
+            title,
+            completed: false,
+          },
+          ...state.items,
+        ],
+      }),
+      addItem: (state: TodoState, item: Todo): TodoState => ({
+        ...state,
+        loading: false,
+        items: [item, ...state.items],
+      }),
+      toggle: (state: TodoState, id: number): TodoState => ({
+        ...state,
+        items: state.items.map((t) =>
+          t.id === id ? { ...t, completed: !t.completed } : t
+        ),
+      }),
+      remove: (state: TodoState, id: number): TodoState => ({
+        ...state,
+        items: state.items.filter((t) => t.id !== id),
+      }),
+      reset: ctx.reducers.reset,
+    };
+  },
+
+  thunks: ({ domain }) => ({
+    fetchTodos: async () => {
       todoModel.setLoading();
       const api = domain.get(TodoApiModule);
 
@@ -184,8 +199,8 @@ export const todoModel = appDomain.model({
       } catch (err) {
         todoModel.setError(String(err));
       }
-    }),
-    addTodo: ctx.thunk((title: string) => async ({ domain }) => {
+    },
+    addTodo: async (title: string) => {
       todoModel.setLoading();
       const api = domain.get(TodoApiModule);
 
@@ -195,6 +210,6 @@ export const todoModel = appDomain.model({
       } catch (err) {
         todoModel.setError(String(err));
       }
-    }),
+    },
   }),
 });

@@ -2,6 +2,8 @@ import {
   Action,
   Domain,
   DomainContext,
+  DomainConfig,
+  DomainMeta,
   MutableStore,
   Reducer,
   Thunk,
@@ -19,6 +21,7 @@ import {
   ModelWithMethods,
   MapActionsUnion,
   StoreConfig,
+  DomainPluginConfig,
 } from "../types";
 import { buildModel } from "./model";
 
@@ -34,14 +37,22 @@ function createDomain<TAction extends Action>(
   name: string,
   notifyParent?: OnDispatch,
   resolver?: Resolver<TAction>,
-  root?: Domain<any>
+  root?: Domain<any>,
+  inheritedPlugins?: DomainPluginConfig[],
+  meta?: DomainMeta
 ): Domain<TAction> {
   // Root domain placeholder - set after domainObject is created
   let domainObjectRef: Domain<TAction> | null = null;
 
+  // Plugin registry - inherited from parent plus locally registered
+  const plugins: DomainPluginConfig[] = inheritedPlugins
+    ? [...inheritedPlugins]
+    : [];
+
   // Create resolver for root domain (subdomains receive it from parent)
   const resolverInstance =
-    resolver ?? createResolver<TAction>(() => domainObjectRef!.root);
+    resolver ?? createResolver<TAction>(() => domainObjectRef!.root, plugins);
+
   // Closure State
   const stores = new Set<Store<any>>();
   const subdomains = new Set<Domain<any>>();
@@ -153,7 +164,17 @@ function createDomain<TAction extends Action>(
   function store<TState, TStoreActions extends Action = TAction>(
     config: StoreConfig<TState, TStoreActions>
   ): MutableStore<TState, TStoreActions, TAction> {
-    const { name: childName, initial, reducer, equals } = config;
+    // Run pre hooks - allow config transformation (respecting filter)
+    let effectiveConfig = config;
+    for (const plugin of plugins) {
+      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig)) continue;
+      if (plugin.store?.pre) {
+        const result = plugin.store.pre(effectiveConfig);
+        if (result) effectiveConfig = result as StoreConfig<TState, TStoreActions>;
+      }
+    }
+
+    const { name: childName, initial, reducer, equals, meta } = effectiveConfig;
     const fullName = `${name}.${childName}`;
 
     const newStore = createStore<TState, TStoreActions, TAction>(
@@ -162,23 +183,51 @@ function createDomain<TAction extends Action>(
       reducer,
       getContext() as any,
       handleChildDispatch,
-      equals
+      equals,
+      meta
     );
     stores.add(newStore);
+
+    // Run post hooks - side effects only (respecting filter)
+    for (const plugin of plugins) {
+      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig)) continue;
+      plugin.store?.post?.(newStore, effectiveConfig);
+    }
+
     return newStore;
   }
 
   const createSubDomain = <SubAction extends Action = never>(
-    childName: string
+    childName: string,
+    meta?: DomainMeta
   ): Domain<SubAction | TAction> => {
-    const fullName = `${name}.${childName}`;
+    // Run pre hooks - allow config transformation (respecting filter)
+    let config: DomainConfig = { name: childName, meta };
+    for (const plugin of plugins) {
+      if (plugin.domain?.filter && !plugin.domain.filter(config)) continue;
+      if (plugin.domain?.pre) {
+        const result = plugin.domain.pre(config);
+        if (result) config = result;
+      }
+    }
+
+    const fullName = `${name}.${config.name}`;
     const sub = createDomain<SubAction | TAction>(
       fullName,
       handleChildDispatch,
       resolverInstance as Resolver<SubAction | TAction>,
-      domainObject.root
+      domainObject.root,
+      plugins, // Pass plugins to child domain
+      config.meta
     );
     subdomains.add(sub);
+
+    // Run post hooks - side effects only (respecting filter)
+    for (const plugin of plugins) {
+      if (plugin.domain?.filter && !plugin.domain.filter(config)) continue;
+      plugin.domain?.post?.(sub, config);
+    }
+
     return sub;
   };
 
@@ -215,13 +264,19 @@ function createDomain<TAction extends Action>(
 
     return buildModel<TState, TActionMap, TThunkMap, TAction>(
       createStoreForModel,
-      config
+      { ...config, domain: domainObject }
     );
+  };
+
+  // Internal: Register a plugin
+  const _registerPlugin = (config: DomainPluginConfig) => {
+    plugins.push(config);
   };
 
   // Construct the object
   const domainObject = withUse({
     name,
+    meta,
     root: null as any, // Placeholder, set below
     dispatch,
     get,
@@ -233,6 +288,7 @@ function createDomain<TAction extends Action>(
     domain: createSubDomain,
     model,
     _receiveDomainAction,
+    _registerPlugin,
   }) as Domain<TAction>;
 
   // Set root reference (for root domain, it's self; for subdomain, it's passed in)

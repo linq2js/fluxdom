@@ -585,6 +585,134 @@ todoStore.use((store) => {
 });
 ```
 
+### Domain Plugins — Hook Into Creation
+
+Use `domainPlugin()` to intercept domain, store, and module creation. Perfect for logging, DevTools integration, persistence, and more.
+
+```ts
+import { domain, domainPlugin } from "fluxdom";
+
+// Create a logging plugin
+const logging = domainPlugin({
+  store: {
+    pre: (config) => {
+      console.log("[store:pre]", config.name);
+      // Return new config to transform, or void to keep original
+    },
+    post: (store, config) => {
+      console.log("[store:post]", store.name, config.initial);
+      // Side effects only - must return void
+    },
+  },
+  domain: {
+    post: (d, config) => console.log("[domain:created]", d.name, config),
+  },
+  module: {
+    post: (instance, def) => console.log("[module:created]", def.name),
+  },
+});
+
+// Apply to domain - plugins are inherited by child domains
+const app = domain("app").use(logging);
+```
+
+#### Plugin Hooks
+
+| Hook | Signature | Purpose |
+|------|-----------|---------|
+| `filter` | `(config) => boolean` | Skip hooks if returns false |
+| `pre` | `(config) => Config \| void` | Transform config before creation |
+| `post` | `(instance, config) => void` | Side effects after creation (receives both instance and config) |
+
+#### Hook Targets
+
+- **`store`**: Called for `domain.store()` and `domain.model()`
+- **`domain`**: Called for `domain.domain()` (subdomains)
+- **`module`**: Called for `domain.get()` (module instantiation)
+
+#### Example: DevTools Integration
+
+```ts
+const devTools = domainPlugin({
+  store: {
+    post: (store) => {
+      // Connect each store to Redux DevTools
+      const devToolsExtension = window.__REDUX_DEVTOOLS_EXTENSION__;
+      if (devToolsExtension) {
+        const devTools = devToolsExtension.connect({ name: store.name });
+        devTools.init(store.getState());
+        store.onChange(() => devTools.send({ type: "STATE_UPDATE" }, store.getState()));
+      }
+    },
+  },
+});
+```
+
+#### Example: Auto-Persistence with Meta Filter
+
+Use the meta system to selectively apply plugins. First, augment the meta interface:
+
+```ts
+// In your app's types file
+declare module "fluxdom" {
+  interface StoreMeta {
+    persisted?: boolean;
+  }
+}
+```
+
+Then create a persistence plugin that only applies to stores with `meta.persisted`:
+
+```ts
+const persistence = domainPlugin({
+  store: {
+    // Only apply to stores with meta.persisted = true
+    filter: (config) => config.meta?.persisted === true,
+    pre: (config) => {
+      // Hydrate from localStorage if available
+      const saved = localStorage.getItem(config.name);
+      if (saved) {
+        return { ...config, initial: JSON.parse(saved) };
+      }
+    },
+    post: (store, config) => {
+      // Persist on every change
+      store.onChange(() => {
+        localStorage.setItem(store.name, JSON.stringify(store.getState()));
+      });
+    },
+  },
+});
+
+// Usage
+const app = domain("app").use(persistence);
+
+// This store will be persisted
+const userStore = app.store({
+  name: "user",
+  initial: { name: "" },
+  reducer: userReducer,
+  meta: { persisted: true },
+});
+
+// This store will NOT be persisted (no meta.persisted)
+const tempStore = app.store({
+  name: "temp",
+  initial: {},
+  reducer: tempReducer,
+});
+```
+
+#### Plugin Inheritance
+
+Plugins are automatically inherited by child domains:
+
+```ts
+const app = domain("app").use(logging);
+const feature = app.domain("feature"); // Inherits logging plugin
+feature.store({ ... }); // logging hooks are called
+```
+
 ### Batching — Optimize Multiple Updates
 
 When dispatching many actions at once, use `batch()` to consolidate notifications. Instead of triggering listeners after each dispatch, notifications are deferred until the batch completes.
@@ -745,25 +873,31 @@ const todos = app.model({
     setItems: (state, items: Todo[]) => ({ ...state, items, loading: false }),
     reset: ctx.reducers.reset,
   }),
-  thunks: (ctx) => ({
-    // ctx.actions gives you type-safe action creators
-    // ctx.initial gives you the initial state
-    fetchTodos: async ({ dispatch, domain }) => {
-      dispatch(ctx.actions.setLoading(true));
+  // Thunks receive full context in closure - just write regular functions!
+  thunks: ({ actions, dispatch, getState, domain, initial }) => ({
+    fetchTodos: async () => {
+      dispatch(actions.setLoading(true));
       const api = domain.get(ApiModule);
       const items = await api.fetchTodos();
-      dispatch(ctx.actions.setItems(items));
+      dispatch(actions.setItems(items));
       return items;
     },
-    resetToInitial: ({ dispatch }) => {
-      dispatch(ctx.actions.reset());
+    resetToInitial: () => {
+      dispatch(actions.reset());
+    },
+    addIfNotLoading: (item: Todo) => {
+      // getState() always returns current state
+      if (!getState().loading) {
+        dispatch(actions.setItems([...getState().items, item]));
+      }
     },
   }),
 });
 
-// Call thunks directly
+// Call thunks directly - they're just regular methods
 await todos.fetchTodos();
 todos.resetToInitial();
+todos.addIfNotLoading({ id: 1, title: "New" });
 ```
 
 **Handle domain actions with `ctx.fallback()`:**
@@ -919,6 +1053,57 @@ const StorageModule = module<Storage>("storage", () => {
 // Usage
 const logger = app.get(LoggerModule);
 const api = app.get(ApiModule);
+```
+
+---
+
+### `domainPlugin(config)`
+
+Create a plugin that hooks into domain, store, and module creation.
+
+```ts
+import { domainPlugin } from "fluxdom";
+
+interface DomainPluginConfig {
+  domain?: {
+    filter?: (config: DomainConfig) => boolean;
+    pre?: (config: DomainConfig) => DomainConfig | void;
+    post?: (domain: Domain<any>, config: DomainConfig) => void;
+  };
+  store?: {
+    filter?: (config: StoreConfig<any, any>) => boolean;
+    pre?: (config: StoreConfig<any, any>) => StoreConfig<any, any> | void;
+    post?: (store: MutableStore<any, any, any>, config: StoreConfig<any, any>) => void;
+  };
+  module?: {
+    filter?: (definition: ModuleDef<any, any>) => boolean;
+    pre?: (definition: ModuleDef<any, any>) => ModuleDef<any, any> | void;
+    post?: (instance: any, definition: ModuleDef<any, any>) => void;
+  };
+}
+
+interface DomainConfig {
+  name: string;
+  meta?: DomainMeta;
+}
+```
+
+**Key rules:**
+- `filter` skips pre/post hooks if returns false (useful with meta system)
+- `pre` hooks can return new config (transform) or void (keep original)
+- `post` hooks receive both the instance and config; must return void (side effects only)
+- All hooks are synchronous
+- Plugins are inherited by child domains
+
+```ts
+const logging = domainPlugin({
+  store: {
+    pre: (config) => console.log("[store:pre]", config.name),
+    post: (store, config) => console.log("[store:created]", store.name, config),
+  },
+});
+
+const app = domain("app").use(logging);
 ```
 
 ---
@@ -1230,6 +1415,9 @@ interface ModelActionContext<TState> {
 interface ModelThunkContext<TState, TActionMap> {
   actions: ActionCreators<TActionMap>; // Type-safe action creators
   initial: TState; // The initial state value
+  dispatch: Dispatch; // Dispatch actions to this model's store
+  getState: () => TState; // Get current state (always fresh)
+  domain: Domain; // Parent domain (for modules, other stores)
 }
 ```
 
@@ -1243,10 +1431,11 @@ const counter = app.model({
     reset: ctx.reducers.reset,
     set: ctx.reducers.set,
   }),
-  thunks: (ctx) => ({
-    incrementAsync: async ({ dispatch }) => {
+  // Thunks: context (actions, dispatch, getState, domain) captured in closure
+  thunks: ({ actions, dispatch }) => ({
+    incrementAsync: async () => {
       await delay(100);
-      dispatch(ctx.actions.increment());
+      dispatch(actions.increment());
     },
   }),
   equals: "strict", // Optional equality strategy
@@ -1908,6 +2097,16 @@ import type {
 
   // Store config
   StoreConfig,
+
+  // Plugin types
+  DomainPlugin,
+  DomainPluginConfig,
+  DomainConfig,
+
+  // Meta types (augmentable interfaces)
+  DomainMeta,
+  StoreMeta,
+  ModuleMeta,
 } from "fluxdom";
 
 // Functions
@@ -1919,6 +2118,7 @@ import {
   emitter,
   batch,
   withUse,
+  domainPlugin, // Create domain plugins
   strictEqual,
   shallowEqual,
   deepEqual,
