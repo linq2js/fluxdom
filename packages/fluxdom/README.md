@@ -1477,6 +1477,18 @@ interface ModelEffectsContext<TState, TActionMap> {
   domain: Domain; // Parent domain (for modules, other stores)
 }
 
+// TaskHelper accepts any PromiseLike (native Promises, Bluebird, jQuery Deferreds, etc.)
+interface TaskHelper {
+  <TResult>(
+    promise: PromiseLike<TResult>,
+    options: TaskOptions<TResult>
+  ): Promise<TResult>;
+  <TArgs extends any[], TResult>(
+    fn: (...args: TArgs) => PromiseLike<TResult>,
+    options: TaskOptions<TResult>
+  ): (...args: TArgs) => Promise<TResult>;
+}
+
 // Each callback can return Action (auto-dispatched) or void (listener only)
 interface TaskOptions<TResult, TError = Error> {
   start?: () => Action | void; // Before async starts
@@ -2142,6 +2154,23 @@ await enhancedApi.getTodos();
 
 ---
 
+### `isPromiseLike(value)`
+
+Check if a value is a PromiseLike (has a `.then` method). Works with native Promises, Bluebird, jQuery Deferreds, and any thenable.
+
+```ts
+import { isPromiseLike } from "fluxdom";
+
+isPromiseLike(Promise.resolve(1)); // true
+isPromiseLike(fetch("/api")); // true
+isPromiseLike({ then: (fn) => fn(42) }); // true (custom thenable)
+isPromiseLike(() => {}); // false
+isPromiseLike(null); // false
+isPromiseLike(42); // false
+```
+
+---
+
 ## 🔷 TypeScript
 
 FluxDom is built with TypeScript. Every type is exported:
@@ -2197,6 +2226,7 @@ import {
   emitter,
   batch,
   withUse,
+  isPromiseLike, // Check if value is a PromiseLike/thenable
   domainPlugin, // Create domain plugins
   strictEqual,
   shallowEqual,
