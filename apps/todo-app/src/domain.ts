@@ -11,7 +11,18 @@
  */
 
 import { domain, module } from "fluxdom";
+import { getDevTools } from "fluxdom/devtools";
 import { produce } from "immer";
+
+// =============================================================================
+// DevTools
+// =============================================================================
+
+/**
+ * Global DevTools instance for debugging.
+ * Connect to the domain to track state changes.
+ */
+export const devtools = getDevTools();
 
 // =============================================================================
 // Types
@@ -106,6 +117,9 @@ export const TodoApiModule = module<ApiService>("todo-api", () => ({
  * - Action dispatching and routing
  */
 export const appDomain = domain("app");
+
+// Connect DevTools to track this domain
+devtools.connect(appDomain);
 
 // =============================================================================
 // Todo Model

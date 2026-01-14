@@ -16,6 +16,16 @@
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react.js",
       "require": "./dist/react.cjs"
+    },
+    "./devtools": {
+      "types": "./dist/devtools/index.d.ts",
+      "import": "./dist/devtools.js",
+      "require": "./dist/devtools.cjs"
+    },
+    "./react-devtools": {
+      "types": "./dist/react-devtools/index.d.ts",
+      "import": "./dist/react-devtools.js",
+      "require": "./dist/react-devtools.cjs"
     }
   },
   "scripts": {

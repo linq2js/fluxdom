@@ -8,6 +8,8 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, "src/index.ts"),
         react: resolve(__dirname, "src/react/index.ts"),
+        devtools: resolve(__dirname, "src/devtools/index.ts"),
+        "react-devtools": resolve(__dirname, "src/react-devtools/index.ts"),
       },
       name: "FluxDom",
     },

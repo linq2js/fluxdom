@@ -123,19 +123,20 @@ const todosStore = todos.store({
     switch (action.type) {
       case "add":
         return {
-          items: [...state.items, {
-            id: Date.now(),
-            text: action.payload,
-            done: false
-          }]
+          items: [
+            ...state.items,
+            {
+              id: Date.now(),
+              text: action.payload,
+              done: false,
+            },
+          ],
         };
       case "toggle":
         return {
-          items: state.items.map(item =>
-            item.id === action.payload
-              ? { ...item, done: !item.done }
-              : item
-          )
+          items: state.items.map((item) =>
+            item.id === action.payload ? { ...item, done: !item.done } : item
+          ),
         };
       default:
         return state;
@@ -157,7 +158,7 @@ const counter = app.model({
     decrement: (state) => state - 1,
     add: (state, amount: number) => state + amount,
     reset: ctx.reducers.reset, // Built-in helper
-    set: ctx.reducers.set,     // Built-in helper
+    set: ctx.reducers.set, // Built-in helper
   }),
 });
 
@@ -210,8 +211,8 @@ Create computed values that automatically update:
 ```ts
 const stats = todos.derived("stats", [todosStore], (todos) => ({
   total: todos.items.length,
-  completed: todos.items.filter(t => t.done).length,
-  remaining: todos.items.filter(t => !t.done).length,
+  completed: todos.items.filter((t) => t.done).length,
+  remaining: todos.items.filter((t) => !t.done).length,
 }));
 
 // Always up-to-date
@@ -274,9 +275,7 @@ Override modules for testing:
 ```ts
 // Mock API for tests
 const MockApi = module<ApiService>("api", () => ({
-  fetchTodos: async () => [
-    { id: 1, text: "Test todo", done: false }
-  ],
+  fetchTodos: async () => [{ id: 1, text: "Test todo", done: false }],
   saveTodo: async () => {},
 }));
 
@@ -358,33 +357,29 @@ const todos = app.model({
   actions: (ctx) => ({
     add: (state, text) => ({
       ...state,
-      items: [...state.items, { id: Date.now(), text, done: false }]
+      items: [...state.items, { id: Date.now(), text, done: false }],
     }),
     toggle: (state, id) => ({
       ...state,
-      items: state.items.map(item =>
+      items: state.items.map((item) =>
         item.id === id ? { ...item, done: !item.done } : item
-      )
+      ),
     }),
     setFilter: (state, filter) => ({ ...state, filter }),
   }),
 });
 
 // Derived state
-const visibleTodos = app.derived(
-  "visibleTodos",
-  [todos],
-  (todos) => {
-    switch (todos.filter) {
-      case "active":
-        return todos.items.filter(t => !t.done);
-      case "completed":
-        return todos.items.filter(t => t.done);
-      default:
-        return todos.items;
-    }
+const visibleTodos = app.derived("visibleTodos", [todos], (todos) => {
+  switch (todos.filter) {
+    case "active":
+      return todos.items.filter((t) => !t.done);
+    case "completed":
+      return todos.items.filter((t) => t.done);
+    default:
+      return todos.items;
   }
-);
+});
 ```
 
 ### React Components
@@ -392,11 +387,11 @@ const visibleTodos = app.derived(
 ```tsx
 function TodoApp() {
   const { isLoggedIn } = useSelector(auth);
-  
+
   if (!isLoggedIn) {
     return <LoginForm />;
   }
-  
+
   return (
     <div>
       <TodoInput />
@@ -408,7 +403,7 @@ function TodoApp() {
 
 function TodoInput() {
   const [text, setText] = useState("");
-  
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (text.trim()) {
@@ -416,7 +411,7 @@ function TodoInput() {
       setText("");
     }
   };
-  
+
   return (
     <form onSubmit={handleSubmit}>
       <input
@@ -430,17 +425,17 @@ function TodoInput() {
 
 function TodoList() {
   const items = useSelector(visibleTodos);
-  
+
   return (
     <ul>
-      {items.map(todo => (
+      {items.map((todo) => (
         <li key={todo.id}>
           <input
             type="checkbox"
             checked={todo.done}
             onChange={() => todos.toggle(todo.id)}
           />
-          <span style={{ textDecoration: todo.done ? 'line-through' : 'none' }}>
+          <span style={{ textDecoration: todo.done ? "line-through" : "none" }}>
             {todo.text}
           </span>
         </li>
@@ -451,10 +446,10 @@ function TodoList() {
 
 function TodoFilters() {
   const { filter } = useSelector(todos);
-  
+
   return (
     <div>
-      {["all", "active", "completed"].map(f => (
+      {["all", "active", "completed"].map((f) => (
         <button
           key={f}
           onClick={() => todos.setFilter(f)}
