@@ -1,6 +1,6 @@
 {
   "name": "fluxdom",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Hierarchical state management that scales with your ambition",
   "type": "module",
   "main": "./dist/index.cjs",
