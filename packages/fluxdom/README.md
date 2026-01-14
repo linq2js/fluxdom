@@ -223,8 +223,7 @@ counterStore.dispatch(counterActions.incrementBy(5));
 **Combine multiple action sources (store + domain actions):**
 
 ```ts
-type AppAction = { type: "RESET_ALL" };
-const app = domain<AppAction>("app");
+const app = domain("app");
 
 const counterActions = actions({
   increment: true,
@@ -305,6 +304,114 @@ const todoStore = todos.store<TodoState, TodoAction>(
   }
 );
 ```
+
+### Actions Architecture — Features vs Domains
+
+Understanding the relationship between **feature actions** and **domain actions** is key to FluxDom's mental model.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Feature Layer (Business Logic)                              │
+│  • todoActions = actions("todos", { add, remove, toggle })  │
+│  • userActions = actions("user", { login, logout })         │
+│  • cartActions = actions("cart", { add, checkout })         │
+└─────────────────────────────────────────────────────────────┘
+                           ↓ dispatched to
+┌─────────────────────────────────────────────────────────────┐
+│ Domain Layer (State Organization)                           │
+│  • app domain                                               │
+│    ├── store: todos (handles todoActions)                   │
+│    ├── store: user (handles userActions)                    │
+│    └── subdomain: checkout                                  │
+│        └── store: cart (handles cartActions + userActions)  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Feature Actions — Business Logic
+
+Actions created with `actions()` represent **business operations**, not domain structure. They're independent, reusable, and can be handled by any store.
+
+```ts
+// Feature actions — define WHAT operations exist
+const todoActions = actions("todos", {
+  add: (title: string) => ({ title }),
+  remove: (id: number) => ({ id }),
+  toggle: (id: number) => id,
+});
+
+const userActions = actions("user", {
+  login: (credentials: Credentials) => credentials,
+  logout: true,
+});
+
+// These actions can be dispatched to ANY store that handles them
+todoStore.dispatch(todoActions.add("Buy milk"));
+```
+
+#### Domain Dispatch — No Restrictions
+
+Domain dispatch accepts **any action** (`AnyAction`). Type safety comes from **action creators** and **model actions**, not from domain typing.
+
+This is similar to Redux — the domain/store just routes actions, action creators provide type safety.
+
+```ts
+const app = domain("app");
+
+// ✅ Dispatch any action with any properties
+app.dispatch({ type: "RESET_ALL" });
+app.dispatch({ type: "custom/action", payload: { data: 123 } });
+app.dispatch(todoActions.add("Buy milk")); // Type-safe via action creator!
+```
+
+**Cross-cutting actions (app-wide concerns):**
+
+```ts
+const todoStore = app.model({
+  name: "todos",
+  initial: { items: [] },
+  // Fallback builder handles domain actions with ctx.on()
+  fallback: (ctx) => {
+    ctx.on((state, action) => {
+      if (action.type === "RESET_ALL") return { items: [] };
+      if (action.type === "LOGOUT") return { items: [] };
+      return state;
+    });
+  },
+  actions: () => ({
+    /* ... */
+  }),
+});
+
+const settingsStore = app.model({
+  name: "settings",
+  initial: { theme: "light" },
+  fallback: (ctx) => {
+    ctx.on((state, action) => {
+      if (action.type === "RESET_ALL") return { theme: "light" };
+      return state;
+    });
+  },
+  actions: () => ({
+    /* ... */
+  }),
+});
+
+// One dispatch, all stores handle it
+app.dispatch({ type: "RESET_ALL" });
+```
+
+#### Summary
+
+| Layer               | Type Safety    | How                              |
+| ------------------- | -------------- | -------------------------------- |
+| **Domain dispatch** | No restriction | Accepts `AnyAction`              |
+| **Action creators** | ✅ Type-safe   | `actions("todos", { add: ... })` |
+| **Model actions**   | ✅ Type-safe   | `model({ actions: ... })`        |
+| **Store reducers**  | ✅ Type-safe   | `actions.reducer(...)`           |
+
+**Key insight:** Actions are feature-centric (business logic), not domain-centric (state structure). The `prefix` in `actions("todos", {...})` represents the feature namespace, not where it's dispatched.
+
+---
 
 ### Derived Stores — Computed State, Zero Effort
 
@@ -952,32 +1059,28 @@ effects: ({ task, actions, domain }) => ({
 });
 ```
 
-**Handle domain actions with `ctx.fallback()`:**
+**Handle domain actions with `fallback`:**
 
 ```ts
-type AppAction = { type: "RESET_ALL" } | { type: "SET_THEME"; theme: string };
-const app = domain<AppAction>("app");
+const app = domain("app");
 
 const counter = app.model({
   name: "counter",
   initial: 0,
-  actions: (ctx) => {
-    // Register fallback handlers for domain actions
-    ctx.fallback((state, action) => {
+  // Fallback builder with ctx.on()
+  fallback: (ctx) => {
+    ctx.on((state, action) => {
       if (action.type === "RESET_ALL") return 0;
+      if (action.type === "LOGOUT") return 0;
       return state;
     });
-
-    // Can call fallback multiple times to chain handlers
-    ctx.fallback((state, action) => {
-      console.log("Received domain action:", action.type);
-      return state;
-    });
-
-    return {
-      increment: (state) => state + 1,
-    };
+    // Can reuse action handlers via ctx.reducers
+    // ctx.on((state, action) => action.type === "RESET" ? ctx.reducers.reset(state) : state);
   },
+  actions: (actionsCtx) => ({
+    increment: (state) => state + 1,
+    reset: actionsCtx.reducers.reset,
+  }),
 });
 
 // Domain action resets the counter
@@ -1049,7 +1152,7 @@ Create a root domain — your app's command center.
 ```ts
 import { domain } from "fluxdom";
 
-const app = domain<AppAction>("app");
+const app = domain("app");
 ```
 
 ---
@@ -1120,20 +1223,20 @@ interface DomainPluginConfig {
   domain?: {
     filter?: (config: DomainConfig) => boolean;
     pre?: (config: DomainConfig) => DomainConfig | void;
-    post?: (domain: Domain<any>, config: DomainConfig) => void;
+    post?: (domain: Domain, config: DomainConfig) => void;
   };
   store?: {
     filter?: (config: StoreConfig<any, any>) => boolean;
     pre?: (config: StoreConfig<any, any>) => StoreConfig<any, any> | void;
     post?: (
-      store: MutableStore<any, any, any>,
+      store: MutableStore<any, any>,
       config: StoreConfig<any, any>
     ) => void;
   };
   module?: {
-    filter?: (definition: ModuleDef<any, any>) => boolean;
-    pre?: (definition: ModuleDef<any, any>) => ModuleDef<any, any> | void;
-    post?: (instance: any, definition: ModuleDef<any, any>) => void;
+    filter?: (definition: ModuleDef<any>) => boolean;
+    pre?: (definition: ModuleDef<any>) => ModuleDef<any> | void;
+    post?: (instance: any, definition: ModuleDef<any>) => void;
   };
 }
 
@@ -1456,6 +1559,7 @@ interface ModelConfig<TState, TActionMap, TEffectsMap> {
   name: string;
   initial: TState;
   actions: (ctx: ModelActionContext<TState>) => TActionMap;
+  fallback?: (ctx: FallbackContext<TState>) => void; // Handle domain actions
   effects?: (ctx: ModelEffectsContext<TState, TActionMap>) => TEffectsMap;
   equals?: Equality<TState>;
 }
@@ -1465,7 +1569,13 @@ interface ModelActionContext<TState> {
     reset: (state: TState) => TState; // Returns initial state
     set: (state: TState, value: TState) => TState; // Returns the new value
   };
-  fallback: (handler: (state: TState, action: DomainAction) => TState) => void;
+}
+
+interface FallbackContext<TState> {
+  reducers: TActionMap; // Reuse action handlers from actions builder
+  on(handler: (state: TState, action: AnyAction) => TState): void; // Catch-all
+  on<TAction>(action: ActionMatcher<TAction>, handler: ...): void; // Single action
+  on<TAction>(actions: ActionMatcher<TAction>[], handler: ...): void; // Multiple
 }
 
 interface ModelEffectsContext<TState, TActionMap> {
@@ -2171,6 +2281,44 @@ isPromiseLike(42); // false
 
 ---
 
+### `matches(action, actionOrActions)`
+
+Check if an action matches one or more action creators. Useful for filtering in `onDispatch` / `onAnyDispatch` listeners. Provides type narrowing for matched actions.
+
+```ts
+import { actions, matches } from "fluxdom";
+
+const todoActions = actions({
+  add: (title: string) => ({ title }),
+  remove: (id: number) => id,
+  toggle: (id: number) => id,
+});
+
+// In dispatch listeners
+app.onAnyDispatch(({ action }) => {
+  // Single action — type narrowing works!
+  if (matches(action, todoActions.add)) {
+    console.log("Added:", action.payload.title); // ✅ typed as { title: string }
+  }
+
+  // Multiple actions
+  if (matches(action, [todoActions.add, todoActions.remove])) {
+    console.log("Todo list changed");
+  }
+});
+
+// Works with prefixed actions too
+const prefixedActions = actions("todos", {
+  add: (title: string) => ({ title }),
+});
+
+if (matches(someAction, prefixedActions.add)) {
+  // action.type is "todos/add"
+}
+```
+
+---
+
 ## 🔷 TypeScript
 
 FluxDom is built with TypeScript. Every type is exported:
@@ -2200,6 +2348,9 @@ import type {
   ModelConfig,
   ModelActionContext,
   ModelEffectsContext,
+  FallbackContext,
+  FallbackBuilder,
+  ActionMatcher,
   TaskOptions,
   TaskHelper,
 
@@ -2227,6 +2378,7 @@ import {
   batch,
   withUse,
   isPromiseLike, // Check if value is a PromiseLike/thenable
+  matches, // Check if action matches action creator(s)
   domainPlugin, // Create domain plugins
   strictEqual,
   shallowEqual,
@@ -2237,127 +2389,225 @@ import {
 
 ---
 
-## 🔄 FluxDom vs Redux
+## 🔄 FluxDom vs Redux Toolkit
 
-If you're coming from Redux, FluxDom will feel familiar — but with less ceremony.
+If you're coming from Redux/RTK, FluxDom will feel familiar — but with less ceremony.
 
-### What's Similar
+### Feature Comparison
 
-| Concept          | Redux                         | FluxDom                                       |
-| ---------------- | ----------------------------- | --------------------------------------------- |
-| **Actions**      | `{ type: "INC" }`             | `{ type: "INC" }` ✅ Same                     |
-| **Reducers**     | `(state, action) => newState` | `(state, action) => newState` ✅ Same         |
-| **Dispatch**     | `store.dispatch(action)`      | `store.dispatch(action)` ✅ Same              |
-| **Selectors**    | `useSelector(state => ...)`   | `useSelector(store, state => ...)` ✅ Similar |
-| **Async Logic**  | Redux Thunk middleware        | Built-in effects with `task()` ✅ Similar     |
-| **Immutability** | Required                      | Required ✅ Same                              |
+| Feature                  | Redux Toolkit                 | FluxDom                                  |
+| ------------------------ | ----------------------------- | ---------------------------------------- |
+| **Slice/Model**          | `createSlice()`               | `domain.model()`                         |
+| **Async Thunks**         | `createAsyncThunk()`          | `task()` in effects                      |
+| **Store Setup**          | `configureStore()` + Provider | Just `domain()` — no providers           |
+| **Store Structure**      | Single global store           | Multiple stores in hierarchical domains  |
+| **State Shape**          | Always an object              | Any type (primitives, objects, arrays)   |
+| **Computed State**       | `createSelector` (Reselect)   | Built-in `domain.derived()`              |
+| **Immer**                | Built-in                      | Works with Immer (optional)              |
+| **Middleware**           | Redux middleware              | Domain plugins with `pre`/`post` hooks   |
+| **Dependency Injection** | Manual / thunkAPI.extra       | Built-in `module()` system               |
+| **Testing**              | Mock entire store             | `domain.override()` for surgical mocking |
+| **DevTools**             | Redux DevTools                | `onAnyDispatch()` + plugins              |
+| **Code Splitting**       | Complex with `replaceReducer` | Natural with domain hierarchy            |
+| **Bundle Size**          | ~12kb (RTK core)              | ~4kb                                     |
 
-**Your Redux knowledge transfers directly.** Actions, reducers, dispatch — it all works the same way.
+### `createSlice` vs `model()`
 
-### What's Different
+**Redux Toolkit:**
 
-| Feature                  | Redux                                    | FluxDom                                       |
-| ------------------------ | ---------------------------------------- | --------------------------------------------- |
-| **Setup**                | Provider + createStore + combineReducers | Just `domain()` — no providers                |
-| **Store Structure**      | Single global store                      | Multiple stores in hierarchical domains       |
-| **State Shape**          | Always an object                         | Any type (primitives, objects, arrays)        |
-| **Computed State**       | Reselect / RTK createSelector            | Built-in `domain.derived()`                   |
-| **Code Splitting**       | Complex with replaceReducer              | Natural with domain hierarchy                 |
-| **Dependency Injection** | Manual / external library                | Built-in module system                        |
-| **Testing**              | Mock entire store                        | `domain.override()` for surgical mocking      |
-| **DevTools**             | Redux DevTools (required)                | `onAnyDispatch()` + natural console debugging |
-| **Subscribe**            | Called on every dispatch                 | `onChange` only when state changes            |
+```ts
+import { createSlice, configureStore } from "@reduxjs/toolkit";
 
-> 📝 **Note on Subscribe Behavior:**
->
-> - Redux `store.subscribe()` fires on **every dispatch**, even if state didn't change
-> - FluxDom `store.onChange()` fires **only when state actually changes** (more efficient!)
-> - FluxDom `store.onDispatch()` is the equivalent to Redux subscribe — fires on every action
-
-### Side-by-Side Example
-
-**Redux:**
-
-```tsx
-// store.ts
-import { configureStore, createSlice } from "@reduxjs/toolkit";
-
-const counterSlice = createSlice({
-  name: "counter",
-  initialState: 0,
+const todosSlice = createSlice({
+  name: "todos",
+  initialState: { items: [], loading: false },
   reducers: {
-    increment: (state) => state + 1,
-    decrement: (state) => state - 1,
+    setLoading: (state, action) => {
+      state.loading = action.payload;
+    },
+    setItems: (state, action) => {
+      state.items = action.payload;
+      state.loading = false;
+    },
   },
 });
 
-export const store = configureStore({
-  reducer: { counter: counterSlice.reducer },
+const store = configureStore({ reducer: { todos: todosSlice.reducer } });
+const { setLoading, setItems } = todosSlice.actions;
+
+// Usage
+store.dispatch(setLoading(true));
+store.dispatch(setItems([{ id: 1, title: "Task" }]));
+```
+
+**FluxDom:**
+
+```ts
+import { domain } from "fluxdom";
+
+const app = domain("app");
+
+const todosModel = app.model({
+  name: "todos",
+  initial: { items: [], loading: false },
+  actions: () => ({
+    setLoading: (state, loading: boolean) => ({ ...state, loading }),
+    setItems: (state, items) => ({ ...state, items, loading: false }),
+  }),
 });
-export const { increment, decrement } = counterSlice.actions;
 
-// App.tsx
-import { Provider, useSelector, useDispatch } from "react-redux";
-import { store, increment } from "./store";
+// Usage — bound methods, no dispatch needed
+todosModel.setLoading(true);
+todosModel.setItems([{ id: 1, title: "Task" }]);
+```
 
-function Counter() {
-  const count = useSelector((state) => state.counter);
-  const dispatch = useDispatch();
-  return <button onClick={() => dispatch(increment())}>{count}</button>;
-}
+### `createAsyncThunk` vs `task()`
 
+**Redux Toolkit:**
+
+```ts
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
+
+const fetchTodos = createAsyncThunk(
+  "todos/fetch",
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await fetch("/api/todos");
+      return res.json();
+    } catch (err) {
+      return rejectWithValue(err.message);
+    }
+  }
+);
+
+const todosSlice = createSlice({
+  name: "todos",
+  initialState: { items: [], loading: false, error: null },
+  reducers: {},
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchTodos.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(fetchTodos.fulfilled, (state, action) => {
+        state.loading = false;
+        state.items = action.payload;
+      })
+      .addCase(fetchTodos.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  },
+});
+
+// Usage
+store.dispatch(fetchTodos());
+```
+
+**FluxDom:**
+
+```ts
+const todosModel = app.model({
+  name: "todos",
+  initial: { items: [], loading: false, error: null },
+  actions: () => ({
+    setLoading: (state, loading) => ({ ...state, loading }),
+    setItems: (state, items) => ({ ...state, items, loading: false }),
+    setError: (state, error) => ({ ...state, error, loading: false }),
+  }),
+  effects: ({ task, actions }) => ({
+    fetchTodos: task(
+      async () => {
+        const res = await fetch("/api/todos");
+        return res.json();
+      },
+      {
+        start: () => actions.setLoading(true),
+        done: (items) => actions.setItems(items),
+        fail: (err) => actions.setError(err.message),
+      }
+    ),
+  }),
+});
+
+// Usage — just call it
+await todosModel.fetchTodos();
+```
+
+### Key Differences
+
+| Aspect                  | Redux Toolkit                                        | FluxDom                                               |
+| ----------------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| **Boilerplate**         | More setup (Provider, configureStore, extraReducers) | Less setup (just domain + model)                      |
+| **Action Dispatch**     | `dispatch(action())`                                 | Bound methods: `model.action()`                       |
+| **Async Lifecycle**     | `extraReducers` with builder pattern                 | Inline `task()` with callbacks                        |
+| **Lifecycle Callbacks** | Fixed: pending/fulfilled/rejected                    | Flexible: start/done/fail/end (return Action or void) |
+| **React Integration**   | Requires Provider wrapper                            | No Provider needed                                    |
+| **Multiple Stores**     | Anti-pattern, requires workarounds                   | First-class support with domains                      |
+| **DI/Services**         | `thunkAPI.extra` (configured at store level)         | `domain.get(Module)` anywhere                         |
+
+### React Integration
+
+**Redux Toolkit:**
+
+```tsx
+// Must wrap app in Provider
 function App() {
   return (
     <Provider store={store}>
-      <Counter />
+      <TodoList />
     </Provider>
   );
+}
+
+function TodoList() {
+  const todos = useSelector((state) => state.todos.items);
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    dispatch(fetchTodos());
+  }, [dispatch]);
+
+  return todos.map((t) => <div key={t.id}>{t.title}</div>);
 }
 ```
 
 **FluxDom:**
 
 ```tsx
-// store.ts
-import { domain, actions } from "fluxdom";
-
-const app = domain("app");
-
-export const counterActions = actions({
-  increment: true,
-  decrement: true,
-});
-
-const reducer = actions.reducer(counterActions, (state: number, action) => {
-  switch (action.type) {
-    case "increment":
-      return state + 1;
-    case "decrement":
-      return state - 1;
-    default:
-      return state;
-  }
-});
-
-export const counterStore = app.store({ name: "counter", initial: 0, reducer });
-
-// App.tsx
-import { useSelector } from "fluxdom/react";
-import { counterStore, counterActions } from "./store";
-
-function Counter() {
-  const count = useSelector(counterStore);
-  return (
-    <button onClick={() => counterStore.dispatch(counterActions.increment())}>
-      {count}
-    </button>
-  );
+// No Provider needed
+function App() {
+  return <TodoList />;
 }
 
-function App() {
-  return <Counter />; // No Provider needed!
+function TodoList() {
+  const { items } = useSelector(todosModel);
+
+  useEffect(() => {
+    todosModel.fetchTodos();
+  }, []);
+
+  return items.map((t) => <div key={t.id}>{t.title}</div>);
 }
 ```
+
+### When to Choose
+
+**Choose Redux Toolkit if:**
+
+- You need Redux DevTools time-travel debugging
+- Your team is already proficient with Redux
+- You need RTK Query for data fetching/caching
+- You have complex middleware requirements
+
+**Choose FluxDom if:**
+
+- You want minimal boilerplate
+- You prefer bound methods over dispatch
+- You need hierarchical state organization
+- You want built-in dependency injection
+- Bundle size matters
+- You don't want Provider ceremony
 
 ---
 
@@ -2371,6 +2621,7 @@ function App() {
 | "Providers everywhere"      | No providers needed — import and use                         |
 | "Async logic is scattered"  | Effects with `task()` for lifecycle management               |
 | "I can't debug anything"    | Event bubbling + `onAnyDispatch` sees all                    |
+| "Too much boilerplate"      | `model()` = slice + thunks + bound methods in one            |
 
 ---
 

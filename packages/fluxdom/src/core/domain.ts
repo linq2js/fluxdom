@@ -1,5 +1,6 @@
 import {
   Action,
+  AnyAction,
   Domain,
   DomainContext,
   DomainConfig,
@@ -22,6 +23,7 @@ import {
   MapActionsUnion,
   StoreConfig,
   DomainPluginConfig,
+  FallbackBuilder,
 } from "../types";
 import { buildModel } from "./model";
 
@@ -33,16 +35,16 @@ import { createResolver, Resolver } from "./resolver";
 
 // --- Domain Implementation ---
 
-function createDomain<TAction extends Action>(
+function createDomain(
   name: string,
   notifyParent?: OnDispatch,
-  resolver?: Resolver<TAction>,
-  root?: Domain<any>,
+  resolver?: Resolver,
+  root?: Domain,
   inheritedPlugins?: DomainPluginConfig[],
   meta?: DomainMeta
-): Domain<TAction> {
+): Domain {
   // Root domain placeholder - set after domainObject is created
-  let domainObjectRef: Domain<TAction> | null = null;
+  let domainObjectRef: Domain | null = null;
 
   // Plugin registry - inherited from parent plus locally registered
   const plugins: DomainPluginConfig[] = inheritedPlugins
@@ -51,13 +53,13 @@ function createDomain<TAction extends Action>(
 
   // Create resolver for root domain (subdomains receive it from parent)
   const resolverInstance =
-    resolver ?? createResolver<TAction>(() => domainObjectRef!.root, plugins);
+    resolver ?? createResolver(() => domainObjectRef!.root, plugins);
 
   // Closure State
   const stores = new Set<Store<any>>();
-  const subdomains = new Set<Domain<any>>();
-  const dispatchEmitter =
-    emitter<DispatchArgs<TAction, DomainContext<TAction>>>();
+  const subdomains = new Set<Domain>();
+  // Emitter accepts AnyAction since dispatch accepts any action
+  const dispatchEmitter = emitter<DispatchArgs<AnyAction, DomainContext>>();
   const descendantEmitter = emitter<DispatchArgs<any, any>>();
 
   // Root reference (lazy initialized if not passed)
@@ -69,7 +71,7 @@ function createDomain<TAction extends Action>(
   // Let's create the object first with a placeholder for root
 
   // --- Context ---
-  const getContext = (): DomainContext<TAction> => ({
+  const getContext = (): DomainContext => ({
     dispatch,
     get,
   });
@@ -85,7 +87,7 @@ function createDomain<TAction extends Action>(
 
   // --- Dispatch System ---
   const onDispatch = (
-    listener: (args: DispatchArgs<TAction, DomainContext<TAction>>) => void
+    listener: (args: DispatchArgs<AnyAction, DomainContext>) => void
   ) => {
     return dispatchEmitter.on(listener);
   };
@@ -99,12 +101,13 @@ function createDomain<TAction extends Action>(
     };
   };
 
-  const dispatch = (actionOrThunk: TAction | Thunk<any>) => {
+  // Domain dispatch accepts any action - type safety comes from action creators
+  const dispatch = (actionOrThunk: AnyAction | Thunk<any>) => {
     if (typeof actionOrThunk === "function") {
       return actionOrThunk(getContext());
     }
 
-    const action = actionOrThunk as TAction;
+    const action = actionOrThunk;
     const context = getContext();
 
     // 1. Notify Domain Listeners
@@ -121,7 +124,7 @@ function createDomain<TAction extends Action>(
 
   // Internal: Called by Parent Domain to inject global actions
   // @internal
-  const _receiveDomainAction = (action: TAction) => {
+  const _receiveDomainAction = (action: AnyAction) => {
     const context = getContext();
 
     // 1. Notify Domain Listeners (Local)
@@ -135,13 +138,13 @@ function createDomain<TAction extends Action>(
   };
 
   // --- Module System ---
-  const get: ResolveModule<TAction> = (factory) => {
+  const get: ResolveModule = (factory) => {
     return resolverInstance.get(factory);
   };
 
   const override = <TModule>(
-    source: ModuleDef<TModule, TAction>,
-    mock: ModuleDef<TModule, TAction>
+    source: ModuleDef<TModule>,
+    mock: ModuleDef<TModule>
   ): VoidFunction => {
     return resolverInstance.override(source, mock);
   };
@@ -161,23 +164,25 @@ function createDomain<TAction extends Action>(
     return derivedBase(fullName, dependencies, selector, equals);
   };
 
-  function store<TState, TStoreActions extends Action = TAction>(
+  function store<TState, TStoreActions extends Action>(
     config: StoreConfig<TState, TStoreActions>
-  ): MutableStore<TState, TStoreActions, TAction> {
+  ): MutableStore<TState, TStoreActions> {
     // Run pre hooks - allow config transformation (respecting filter)
     let effectiveConfig = config;
     for (const plugin of plugins) {
-      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig)) continue;
+      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig))
+        continue;
       if (plugin.store?.pre) {
         const result = plugin.store.pre(effectiveConfig);
-        if (result) effectiveConfig = result as StoreConfig<TState, TStoreActions>;
+        if (result)
+          effectiveConfig = result as StoreConfig<TState, TStoreActions>;
       }
     }
 
     const { name: childName, initial, reducer, equals, meta } = effectiveConfig;
     const fullName = `${name}.${childName}`;
 
-    const newStore = createStore<TState, TStoreActions, TAction>(
+    const newStore = createStore<TState, TStoreActions>(
       fullName,
       initial,
       reducer,
@@ -190,17 +195,15 @@ function createDomain<TAction extends Action>(
 
     // Run post hooks - side effects only (respecting filter)
     for (const plugin of plugins) {
-      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig)) continue;
+      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig))
+        continue;
       plugin.store?.post?.(newStore, effectiveConfig);
     }
 
     return newStore;
   }
 
-  const createSubDomain = <SubAction extends Action = never>(
-    childName: string,
-    meta?: DomainMeta
-  ): Domain<SubAction | TAction> => {
+  const createSubDomain = (childName: string, meta?: DomainMeta): Domain => {
     // Run pre hooks - allow config transformation (respecting filter)
     let config: DomainConfig = { name: childName, meta };
     for (const plugin of plugins) {
@@ -212,10 +215,10 @@ function createDomain<TAction extends Action>(
     }
 
     const fullName = `${name}.${config.name}`;
-    const sub = createDomain<SubAction | TAction>(
+    const sub = createDomain(
       fullName,
       handleChildDispatch,
-      resolverInstance as Resolver<SubAction | TAction>,
+      resolverInstance,
       domainObject.root,
       plugins, // Pass plugins to child domain
       config.meta
@@ -237,23 +240,22 @@ function createDomain<TAction extends Action>(
     TActionMap extends ModelActionMap<TState>,
     TEffectsMap extends ModelEffectsMap<
       TState,
-      MapActionsUnion<TState, TActionMap>,
-      TAction
+      MapActionsUnion<TState, TActionMap>
     > = Record<string, never>
   >(config: {
     name: string;
     initial: TState;
     actions: (ctx: ModelActionContext<TState>) => TActionMap;
+    fallback?: FallbackBuilder<TState>;
     effects?: (
       ctx: ModelEffectsContext<
         TState,
         TActionMap,
-        MapActionsUnion<TState, TActionMap>,
-        TAction
+        MapActionsUnion<TState, TActionMap>
       >
     ) => TEffectsMap;
     equals?: Equality<TState>;
-  }): ModelWithMethods<TState, TActionMap, TEffectsMap, TAction> => {
+  }): ModelWithMethods<TState, TActionMap, TEffectsMap> => {
     // Create a store factory that delegates to our store() method
     const createStoreForModel = (
       storeName: string,
@@ -262,10 +264,10 @@ function createDomain<TAction extends Action>(
       equals?: Equality<TState>
     ) => store({ name: storeName, initial: initialState, reducer, equals });
 
-    return buildModel<TState, TActionMap, TEffectsMap, TAction>(
-      createStoreForModel,
-      { ...config, domain: domainObject }
-    );
+    return buildModel<TState, TActionMap, TEffectsMap>(createStoreForModel, {
+      ...config,
+      domain: domainObject,
+    });
   };
 
   // Internal: Register a plugin
@@ -289,7 +291,7 @@ function createDomain<TAction extends Action>(
     model,
     _receiveDomainAction,
     _registerPlugin,
-  }) as Domain<TAction>;
+  }) as Domain;
 
   // Set root reference (for root domain, it's self; for subdomain, it's passed in)
   (domainObject as any).root = root ?? domainObject;
@@ -313,15 +315,13 @@ function createDomain<TAction extends Action>(
  *
  * @example
  * ```ts
- * const appDomain = domain<AppAction>("app");
+ * const appDomain = domain("app");
  * const counterStore = appDomain.store("counter", 0, counterReducer);
  * ```
  *
  * @param name - Identifier for the domain (used for debugging)
  * @returns A new Domain instance
  */
-export function domain<TAction extends Action = Action>(
-  name: string
-): Domain<TAction> {
-  return createDomain<TAction>(name);
+export function domain(name: string): Domain {
+  return createDomain(name);
 }

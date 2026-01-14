@@ -25,25 +25,40 @@ export type ActionDefinitionMap = {
     | { type: string; prepare: (...args: any[]) => any }; // full config
 };
 
-/** Infer action creator type from a single definition */
-type InferActionCreator<TKey extends string, TDef> = TDef extends true
-  ? ActionCreator<TKey>
+/** Helper to build prefixed type */
+type PrefixedType<
+  TPrefix extends string,
+  TType extends string
+> = TPrefix extends "" ? TType : `${TPrefix}/${TType}`;
+
+/** Infer action creator type from a single definition with optional prefix */
+type InferActionCreator<
+  TKey extends string,
+  TDef,
+  TPrefix extends string = ""
+> = TDef extends true
+  ? ActionCreator<PrefixedType<TPrefix, TKey>>
   : TDef extends string
-  ? ActionCreator<TDef>
+  ? ActionCreator<TDef> // Custom type is used as-is (no prefix)
   : TDef extends (...args: infer TArgs) => infer TPayload
-  ? ActionCreator<TKey, TArgs, TPayload>
+  ? ActionCreator<PrefixedType<TPrefix, TKey>, TArgs, TPayload>
   : TDef extends {
       type: infer TType;
       prepare: (...args: infer TArgs) => infer TPayload;
     }
   ? TType extends string
-    ? ActionCreator<TType, TArgs, TPayload>
+    ? ActionCreator<TType, TArgs, TPayload> // Explicit type is used as-is (no prefix)
     : never
   : never;
 
 /** Infer action creators map from definitions */
-export type InferActionCreators<TMap extends ActionDefinitionMap> = {
-  [K in keyof TMap]: K extends string ? InferActionCreator<K, TMap[K]> : never;
+export type InferActionCreators<
+  TMap extends ActionDefinitionMap,
+  TPrefix extends string = ""
+> = {
+  [K in keyof TMap]: K extends string
+    ? InferActionCreator<K, TMap[K], TPrefix>
+    : never;
 };
 
 /** Infer action from action creator */
@@ -111,11 +126,9 @@ function createActionCreator<
 /**
  * Create action creators from a definition map.
  *
- * @param definitions - Object defining actions
- * @returns Object with action creators
- *
  * @example
  * ```ts
+ * // Basic usage (no prefix)
  * const counterActions = actions({
  *   increment: true,                              // { type: "increment", payload: void }
  *   decrement: "COUNTER_DECREMENT" as const,      // { type: "COUNTER_DECREMENT", payload: void }
@@ -129,6 +142,25 @@ function createActionCreator<
  * counterActions.set(10);          // { type: "SET", payload: { value: 10 } }
  * ```
  *
+ * @example
+ * ```ts
+ * // With prefix for namespacing (like RTK slices)
+ * const todoActions = actions("todos", {
+ *   add: (title: string) => ({ title }),
+ *   remove: (id: number) => ({ id }),
+ *   toggle: (id: number) => id,
+ * });
+ *
+ * todoActions.add("Buy milk");     // { type: "todos/add", payload: { title: "Buy milk" } }
+ * todoActions.remove(1);           // { type: "todos/remove", payload: { id: 1 } }
+ * todoActions.toggle(1);           // { type: "todos/toggle", payload: 1 }
+ *
+ * // Custom string types are NOT prefixed (used as-is)
+ * const appActions = actions("app", {
+ *   reset: "GLOBAL_RESET" as const,  // { type: "GLOBAL_RESET" } - no prefix
+ * });
+ * ```
+ *
  * @note When using custom string types, add `as const` for proper type inference:
  * ```ts
  * // ❌ Without `as const` - type is inferred as `string`
@@ -140,32 +172,57 @@ function createActionCreator<
  * // action.type is `"RESET"`
  * ```
  */
+// Overload 1: Without prefix
 export function actions<TMap extends ActionDefinitionMap>(
   definitions: TMap
-): InferActionCreators<TMap> {
+): InferActionCreators<TMap, "">;
+
+// Overload 2: With prefix
+export function actions<
+  TPrefix extends string,
+  TMap extends ActionDefinitionMap
+>(prefix: TPrefix, definitions: TMap): InferActionCreators<TMap, TPrefix>;
+
+// Implementation
+export function actions<
+  TPrefix extends string,
+  TMap extends ActionDefinitionMap
+>(
+  prefixOrDefinitions: TPrefix | TMap,
+  maybeDefinitions?: TMap
+): InferActionCreators<TMap, TPrefix> | InferActionCreators<TMap, ""> {
+  // Determine if first arg is prefix or definitions
+  const hasPrefix = typeof prefixOrDefinitions === "string";
+  const prefix = hasPrefix ? (prefixOrDefinitions as TPrefix) : "";
+  const definitions = hasPrefix
+    ? (maybeDefinitions as TMap)
+    : (prefixOrDefinitions as TMap);
+
   const result: Record<string, AnyActionCreator> = {};
 
   for (const key in definitions) {
     if (Object.prototype.hasOwnProperty.call(definitions, key)) {
       const def = definitions[key];
+      // Build prefixed type: "prefix/key" or just "key" if no prefix
+      const prefixedType = prefix ? `${prefix}/${key}` : key;
 
       if (def === true) {
-        // No payload, type = key
-        result[key] = createActionCreator(key);
+        // No payload, type = prefixed key
+        result[key] = createActionCreator(prefixedType);
       } else if (typeof def === "string") {
-        // No payload, custom type
+        // No payload, custom type (NOT prefixed - used as-is)
         result[key] = createActionCreator(def);
       } else if (typeof def === "function") {
-        // With prepare function, type = key
-        result[key] = createActionCreator(key, def);
+        // With prepare function, type = prefixed key
+        result[key] = createActionCreator(prefixedType, def);
       } else if (typeof def === "object" && def !== null) {
-        // Full config with type and prepare
+        // Full config with type and prepare (NOT prefixed - explicit type used as-is)
         result[key] = createActionCreator(def.type, def.prepare);
       }
     }
   }
 
-  return result as InferActionCreators<TMap>;
+  return result as InferActionCreators<TMap, TPrefix>;
 }
 
 /**

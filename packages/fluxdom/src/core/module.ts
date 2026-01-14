@@ -1,9 +1,9 @@
-import { Action, Domain, ModuleDef } from "../types";
+import { Domain, ModuleDef } from "../types";
 
 /**
  * Helper to define a module with type inference.
  */
-export const module = <TModule, TAction extends Action = Action>(
+export const module = <TModule>(
   name: string,
-  create: (domain: Domain<TAction>) => TModule
-): ModuleDef<TModule, TAction> => ({ name, create });
+  create: (domain: Domain) => TModule
+): ModuleDef<TModule> => ({ name, create });

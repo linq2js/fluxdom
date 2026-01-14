@@ -11,6 +11,9 @@ export interface Action {
   type: string;
 }
 
+/** Action that allows any additional properties. Used as fallback in dispatch. */
+export type AnyAction = Action & { [key: string]: unknown };
+
 /** A pure function that transitions state based on an action. */
 export type Reducer<TState, TAction extends Action = Action> = (
   state: TState,
@@ -79,16 +82,12 @@ export type StateOf<T> = T extends Store<infer S> ? S : never;
 
 /**
  * Infer action type from various sources:
- * - Domain<TAction> -> TAction
- * - MutableStore<any, TAction, any> -> TAction
+ * - MutableStore<any, TAction> -> TAction
  * - ActionCreator -> { type, payload }
  * - Record<string, ActionCreator> -> union of all actions
  *
  * @example
  * ```ts
- * const app = domain<{ type: "INC" } | { type: "DEC" }>("app");
- * type AppAction = ActionOf<typeof app>; // { type: "INC" } | { type: "DEC" }
- *
  * const store = app.store("counter", 0, reducer);
  * type StoreAction = ActionOf<typeof store>; // inferred from store
  *
@@ -101,11 +100,8 @@ export type StateOf<T> = T extends Store<infer S> ? S : never;
  * ```
  */
 export type ActionOf<T> =
-  // Domain -> extract TAction
-  T extends Domain<infer A>
-    ? A
-    : // MutableStore -> extract TAction
-    T extends MutableStore<any, infer A, any>
+  // MutableStore -> extract TAction
+  T extends MutableStore<any, infer A>
     ? A
     : // Single ActionCreator -> extract action shape
     T extends { type: infer TType; (...args: any[]): infer TAction }
@@ -239,7 +235,7 @@ export interface StoreConfigInput<
   TState,
   TReducers extends ReducerMap<TState>,
   TThunks extends ThunksMap<
-    StoreContext<TState, MapActionsUnion<TState, TReducers>, TFallbackAction>
+    StoreContext<TState, MapActionsUnion<TState, TReducers>>
   >,
   TFallbackAction extends Action = Action
 > {
@@ -261,7 +257,7 @@ export interface ImmerStoreConfigInput<
   TState,
   TReducers extends ImmerReducerMap<TState>,
   TThunks extends ThunksMap<
-    StoreContext<TState, MapActionsUnion<TState, TReducers>, TFallbackAction>
+    StoreContext<TState, MapActionsUnion<TState, TReducers>>
   >,
   TFallbackAction extends Action = Action
 > {
@@ -283,7 +279,7 @@ export interface StoreConfigOutput<
   TState,
   TReducers extends ReducerMap<TState> | ImmerReducerMap<TState>,
   TThunks extends ThunksMap<
-    StoreContext<TState, MapActionsUnion<TState, TReducers>, TFallbackAction>
+    StoreContext<TState, MapActionsUnion<TState, TReducers>>
   >,
   TFallbackAction extends Action = Action
 > {
@@ -317,23 +313,26 @@ export interface Dispatch<TThunkContext, TAction extends Action = Action> {
 
 // --- Module & Injection System ---
 
-export interface Domain<TDomainAction extends Action = Action>
-  extends Pipeable {
+/**
+ * Domain - root container for state management.
+ *
+ * Domains can dispatch any action (AnyAction) - type safety comes from action creators.
+ * Stores and subdomains within a domain also have no action restrictions.
+ */
+export interface Domain extends Pipeable {
   /** Name of the domain */
   readonly name: string;
 
   readonly meta?: DomainMeta;
 
   /** Reference to the root domain of this hierarchy (or itself if root) */
-  readonly root: Domain<any>;
+  readonly root: Domain;
 
-  // Domain Thunk: Can only orchestrate, cannot read state directly
-  dispatch: Dispatch<DomainContext<TDomainAction>, TDomainAction>;
+  // Domain dispatch accepts any action - type safety comes from action creators
+  dispatch: Dispatch<DomainContext, AnyAction>;
 
   /** Global listener for all actions flowing through this domain. */
-  onDispatch(
-    listener: OnDispatch<TDomainAction, DomainContext<TDomainAction>>
-  ): () => void;
+  onDispatch(listener: OnDispatch<AnyAction, DomainContext>): () => void;
 
   /**
    * Global listener for all actions flowing through this domain AND its descendants.
@@ -342,7 +341,7 @@ export interface Domain<TDomainAction extends Action = Action>
   onAnyDispatch(listener: OnDispatch): () => void;
 
   /** Resolve a module directly from the domain instance. */
-  get: ResolveModule<TDomainAction>;
+  get: ResolveModule;
 
   /**
    * Override a module implementation.
@@ -350,8 +349,8 @@ export interface Domain<TDomainAction extends Action = Action>
    * @returns A function to revert the override.
    */
   override<TModule>(
-    source: ModuleDef<TModule, TDomainAction>,
-    override: ModuleDef<TModule, TDomainAction>
+    source: ModuleDef<TModule>,
+    override: ModuleDef<TModule>
   ): VoidFunction;
 
   /**
@@ -382,14 +381,12 @@ export interface Domain<TDomainAction extends Action = Action>
    * store.dispatch(counterActions.increment());
    * ```
    */
-  store<TState, TStoreActions extends Action = TDomainAction>(
+  store<TState, TStoreActions extends Action>(
     config: StoreConfig<TState, TStoreActions>
-  ): MutableStore<TState, TStoreActions, TDomainAction>;
+  ): MutableStore<TState, TStoreActions>;
 
   /** Create a sub-domain (child) that inherits context from this domain. */
-  domain<TSubDomainAction extends Action = never>(
-    name: string
-  ): Domain<TSubDomainAction | TDomainAction>;
+  domain(name: string): Domain;
 
   /**
    * Create a read-only Derived Store scoped to this domain.
@@ -445,12 +442,11 @@ export interface Domain<TDomainAction extends Action = Action>
     TActionMap extends ModelActionMap<TState>,
     TThunkMap extends ModelThunkMap<
       TState,
-      MapActionsUnion<TState, TActionMap>,
-      TDomainAction
+      MapActionsUnion<TState, TActionMap>
     > = Record<string, never>
   >(
-    config: ModelConfig<TState, TActionMap, TDomainAction, TThunkMap>
-  ): ModelWithMethods<TState, TActionMap, TThunkMap, TDomainAction>;
+    config: ModelConfig<TState, TActionMap, TThunkMap>
+  ): ModelWithMethods<TState, TActionMap, TThunkMap>;
 }
 
 /**
@@ -461,7 +457,7 @@ export interface Domain<TDomainAction extends Action = Action>
  * The `create` function always receives the **root domain**, ensuring
  * consistent behavior regardless of which subdomain first requests the module.
  */
-export interface ModuleDef<TModule, TAction extends Action = any> {
+export interface ModuleDef<TModule> {
   /** Unique name for the module (e.g. 'api', 'auth', 'logger') */
   readonly name: string;
 
@@ -470,12 +466,12 @@ export interface ModuleDef<TModule, TAction extends Action = any> {
    * Factory function to create the module instance.
    * @param domain - The root domain (always root, never a subdomain)
    */
-  readonly create: (domain: Domain<TAction>) => TModule;
+  readonly create: (domain: Domain) => TModule;
 }
 
 /** Function signature to resolve a module from a definition. */
-export type ResolveModule<TAction extends Action = Action> = <TModule>(
-  definition: ModuleDef<TModule, TAction>
+export type ResolveModule = <TModule>(
+  definition: ModuleDef<TModule>
 ) => TModule;
 
 // --- Contexts ---
@@ -484,23 +480,20 @@ export type ResolveModule<TAction extends Action = Action> = <TModule>(
  * Context available to Domain-level logic.
  * Contains dispatch capabilities and module resolution.
  */
-export interface DomainContext<TAction extends Action = Action> {
-  dispatch: Dispatch<this, TAction>;
+export interface DomainContext {
+  // Domain dispatch accepts any action - type safety comes from action creators
+  dispatch: Dispatch<this, AnyAction>;
   /** Resolve a module by its factory. Lazy-loads if needed. */
-  get: ResolveModule<TAction>;
+  get: ResolveModule;
 }
 
 /**
  * Context available to Store-level logic.
  * Extends Domain context with access to the Store's local state.
  */
-export interface StoreContext<
-  TState,
-  TAction extends Action = Action,
-  TDomainAction extends Action = Action
-> {
+export interface StoreContext<TState, TAction extends Action = Action> {
   dispatch: Dispatch<this, TAction>;
-  domain: DomainContext<TDomainAction>;
+  domain: DomainContext;
   getState: () => TState;
 }
 
@@ -528,23 +521,17 @@ export interface Store<TState> extends Pipeable {
  * A Writable Store.
  * created via `domain.store()`. Has dispatch capabilities.
  */
-export interface MutableStore<
-  TState,
-  TAction extends Action,
-  TDomainAction extends Action = Action
-> extends Store<TState> {
+export interface MutableStore<TState, TAction extends Action>
+  extends Store<TState> {
   /** Dispatch an action or thunk to this store. */
-  dispatch: Dispatch<StoreContext<TState, TAction, TDomainAction>, TAction>;
+  dispatch: Dispatch<StoreContext<TState, TAction>, TAction>;
 
   /**
    * Intercept actions dispatched to (or bubbling through) this store.
    * Useful for easy side-effects logging without middleware.
    */
   onDispatch(
-    listener: OnDispatch<
-      TAction | TDomainAction,
-      StoreContext<TState, TAction, TDomainAction>
-    >
+    listener: OnDispatch<TAction | AnyAction, StoreContext<TState, TAction>>
   ): () => void;
 }
 
@@ -769,10 +756,91 @@ export interface Emitter<T = void> {
 /**
  * Fallback handler for domain actions in model().
  */
-export type ModelFallbackHandler<TState, TDomainAction extends Action> = (
+export type ModelFallbackHandler<TState> = (
   state: TState,
-  action: TDomainAction
+  action: AnyAction
 ) => TState;
+
+/**
+ * Action matcher for fallback context.
+ * Can be an action creator with `.match()` method.
+ */
+export interface ActionMatcher<TAction extends Action> {
+  match: (action: Action) => action is TAction;
+}
+
+/**
+ * Context provided to fallback builder in model().
+ * Allows declarative pattern matching for domain actions.
+ *
+ * All matched handlers run in sequence — no "first match wins".
+ * Each handler receives the result of the previous one.
+ *
+ * @example
+ * ```ts
+ * app.model({
+ *   name: "counter",
+ *   initial: 0,
+ *   actions: (ctx) => ({
+ *     increment: (state) => state + 1,
+ *     reset: ctx.reducers.reset,
+ *   }),
+ *   fallback: (ctx) => {
+ *     // Single action
+ *     ctx.on(appActions.logout, ctx.reducers.reset);
+ *
+ *     // Multiple actions
+ *     ctx.on([appActions.clear, appActions.reset], ctx.reducers.reset);
+ *
+ *     // Catch-all (receives AnyAction)
+ *     ctx.on((state, action) => {
+ *       console.log("Received:", action.type);
+ *       return state;
+ *     });
+ *   },
+ * });
+ * ```
+ */
+export interface FallbackContext<
+  TState,
+  TReducers = Record<string, (state: TState, ...args: any[]) => TState>
+> {
+  /**
+   * Access to action handlers from the `actions` builder.
+   * Allows reusing reducers in fallback handlers.
+   */
+  reducers: TReducers;
+
+  /**
+   * Register a catch-all handler for any action.
+   * Receives AnyAction (action with any properties).
+   */
+  on(handler: (state: TState, action: AnyAction) => TState): void;
+
+  /**
+   * Register a handler for a specific action.
+   * Uses the action creator's `.match()` method for type-safe matching.
+   */
+  on<TAction extends Action>(
+    action: ActionMatcher<TAction>,
+    handler: (state: TState, action: TAction) => TState
+  ): void;
+
+  /**
+   * Register a handler for multiple actions.
+   * Handler runs if any of the actions match.
+   */
+  on<TAction extends Action>(
+    actions: ActionMatcher<TAction>[],
+    handler: (state: TState, action: TAction) => TState
+  ): void;
+}
+
+/**
+ * Fallback builder function for model().
+ * Uses a simplified context type to avoid inference issues.
+ */
+export type FallbackBuilder<TState> = (ctx: FallbackContext<TState>) => void;
 
 /**
  * Built-in reducer helpers for common patterns.
@@ -788,45 +856,9 @@ export interface ModelReducerHelpers<TState> {
  * Context provided to action builder in model().
  * Contains helper functions for common reducer patterns.
  */
-export interface ModelActionContext<
-  TState,
-  TDomainAction extends Action = Action
-> {
+export interface ModelActionContext<TState> {
   /** Built-in reducer helpers (reset, set) */
   reducers: ModelReducerHelpers<TState>;
-  /**
-   * Add a fallback handler for domain actions not handled by explicit actions.
-   * Can be called multiple times - handlers are chained in order.
-   *
-   * By default, the action parameter is typed to TDomainAction (the domain's action type).
-   * To handle unknown actions from plugins/middleware, specify `action: Action` explicitly.
-   *
-   * @example
-   * ```ts
-   * app.model({
-   *   name: "counter",
-   *   initial: 0,
-   *   actions: (ctx) => {
-   *     // Handle known domain actions (type-safe)
-   *     ctx.fallback((state, action) => {
-   *       if (action.type === "RESET_ALL") return 0;
-   *       return state;
-   *     });
-   *
-   *     // Handle unknown actions from plugins/middleware (use Action type)
-   *     ctx.fallback((state, action: Action) => {
-   *       if (action.type === "PLUGIN_ACTION") return state + 1;
-   *       return state;
-   *     });
-   *
-   *     return {
-   *       increment: (state) => state + 1,
-   *     };
-   *   },
-   * });
-   * ```
-   */
-  fallback: (handler: ModelFallbackHandler<TState, TDomainAction>) => void;
 }
 
 /**
@@ -990,8 +1022,7 @@ export interface TaskHelper {
 export interface ModelEffectsContext<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TActions extends Action = MapActionsUnion<TState, TActionMap>,
-  TDomainAction extends Action = Action
+  TActions extends Action = MapActionsUnion<TState, TActionMap>
 > {
   /** Task helper for async operations with lifecycle dispatching */
   task: TaskHelper;
@@ -1000,11 +1031,11 @@ export interface ModelEffectsContext<
   /** Initial state value (for reference, e.g., reset effects) */
   initial: TState;
   /** Dispatch actions to this model's store */
-  dispatch: Dispatch<StoreContext<TState, TActions, TDomainAction>, TActions>;
+  dispatch: Dispatch<StoreContext<TState, TActions>, TActions>;
   /** Get current state of this model's store */
   getState: () => TState;
   /** Parent domain (for accessing modules, other stores, etc.) */
-  domain: Domain<TDomainAction>;
+  domain: Domain;
 }
 
 /**
@@ -1018,14 +1049,11 @@ export type ModelEffect<TArgs extends any[] = any[], TResult = any> = (
 /**
  * Map of effects returned by effectsBuilder in model().
  * Effects are regular functions - context is in closure.
- *
- * Note: Type parameters kept for API compatibility with domain.model() constraints.
  */
-export type ModelEffectsMap<
-  _TState,
-  _TActions extends Action,
-  _TDomainAction extends Action
-> = Record<string, ModelEffect<any[], any>>;
+export type ModelEffectsMap<_TState, _TActions extends Action> = Record<
+  string,
+  ModelEffect<any[], any>
+>;
 
 /**
  * Map effects to their bound method types.
@@ -1040,16 +1068,14 @@ export type ModelBoundEffects<TMap> = {
 export type ModelThunkContext<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TActions extends Action = MapActionsUnion<TState, TActionMap>,
-  TDomainAction extends Action = Action
-> = ModelEffectsContext<TState, TActionMap, TActions, TDomainAction>;
+  TActions extends Action = MapActionsUnion<TState, TActionMap>
+> = ModelEffectsContext<TState, TActionMap, TActions>;
 
 /** @deprecated Use ModelEffectsMap instead */
-export type ModelThunkMap<
+export type ModelThunkMap<TState, TActions extends Action> = ModelEffectsMap<
   TState,
-  TActions extends Action,
-  TDomainAction extends Action
-> = ModelEffectsMap<TState, TActions, TDomainAction>;
+  TActions
+>;
 
 /** @deprecated Use ModelBoundEffects instead */
 export type ModelBoundThunks<TMap> = ModelBoundEffects<TMap>;
@@ -1061,9 +1087,8 @@ export type ModelBoundThunks<TMap> = ModelBoundEffects<TMap>;
 export type Model<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  _TEffectsMap,
-  TDomainAction extends Action
-> = MutableStore<TState, MapActionsUnion<TState, TActionMap>, TDomainAction>;
+  _TEffectsMap
+> = MutableStore<TState, MapActionsUnion<TState, TActionMap>>;
 
 /**
  * Full model type with bound action and effect methods.
@@ -1072,9 +1097,8 @@ export type Model<
 export type ModelWithMethods<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TEffectsMap,
-  TDomainAction extends Action
-> = Model<TState, TActionMap, TEffectsMap, TDomainAction> &
+  TEffectsMap
+> = Model<TState, TActionMap, TEffectsMap> &
   ModelBoundActions<TActionMap> &
   ModelBoundEffects<TEffectsMap>;
 
@@ -1103,11 +1127,9 @@ export interface StoreConfig<TState, TAction extends Action = Action> {
 export interface ModelConfig<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TDomainAction extends Action,
   TEffectsMap extends ModelEffectsMap<
     TState,
-    MapActionsUnion<TState, TActionMap>,
-    TDomainAction
+    MapActionsUnion<TState, TActionMap>
   >
 > {
   /** Store name (will be prefixed with domain name) */
@@ -1117,7 +1139,7 @@ export interface ModelConfig<
   initial: TState;
 
   /** Action builder function that receives context helpers and returns action handlers */
-  actions: (ctx: ModelActionContext<TState, TDomainAction>) => TActionMap;
+  actions: (ctx: ModelActionContext<TState>) => TActionMap;
 
   /**
    * Optional effects builder function that returns effect functions.
@@ -1144,6 +1166,35 @@ export interface ModelConfig<
    * ```
    */
   effects?: (ctx: ModelEffectsContext<TState, TActionMap>) => TEffectsMap;
+
+  /**
+   * Optional fallback builder for domain actions not handled by explicit actions.
+   * Used to handle cross-cutting concerns like RESET_ALL, LOGOUT, etc.
+   *
+   * Register handlers with `ctx.on()`. All matched handlers run in sequence.
+   * Use `ctx.reducers` to reuse action handlers from the `actions` builder.
+   *
+   * @example
+   * ```ts
+   * app.model({
+   *   name: "counter",
+   *   initial: 0,
+   *   actions: (ctx) => ({
+   *     increment: (state) => state + 1,
+   *     reset: ctx.reducers.reset,
+   *   }),
+   *   fallback: (ctx) => {
+   *     ctx.on(appActions.logout, ctx.reducers.reset);
+   *     ctx.on([appActions.clear, appActions.reset], ctx.reducers.reset);
+   *     ctx.on((state, action) => {
+   *       console.log("Unhandled:", action.type);
+   *       return state;
+   *     });
+   *   },
+   * });
+   * ```
+   */
+  fallback?: FallbackBuilder<TState>;
 
   /** Optional equality strategy for change detection */
   equals?: Equality<TState>;
@@ -1214,7 +1265,7 @@ export interface DomainPluginConfig {
      * Called after a sub-domain is created.
      * For side effects only - must return void.
      */
-    post?: (domain: Domain<any>, config: DomainConfig) => void;
+    post?: (domain: Domain, config: DomainConfig) => void;
   };
 
   /**
@@ -1241,7 +1292,7 @@ export interface DomainPluginConfig {
      * For side effects only - must return void.
      */
     post?: (
-      store: MutableStore<any, any, any>,
+      store: MutableStore<any, any>,
       config: StoreConfig<any, any>
     ) => void;
   };
@@ -1254,18 +1305,18 @@ export interface DomainPluginConfig {
      * Filter function to determine if this plugin should run.
      * If returns false, pre/post hooks are skipped for this module.
      */
-    filter?: (definition: ModuleDef<any, any>) => boolean;
+    filter?: (definition: ModuleDef<any>) => boolean;
     /**
      * Called before a module is instantiated.
      * Can return modified definition or void to use original.
      */
-    pre?: (definition: ModuleDef<any, any>) => ModuleDef<any, any> | void;
+    pre?: (definition: ModuleDef<any>) => ModuleDef<any> | void;
     /**
      * Called after a module is instantiated.
      * Receives both the instance and its definition.
      * For side effects only - must return void.
      */
-    post?: (instance: any, definition: ModuleDef<any, any>) => void;
+    post?: (instance: any, definition: ModuleDef<any>) => void;
   };
 }
 
@@ -1273,8 +1324,5 @@ export interface DomainPluginConfig {
  * A domain plugin function.
  *
  * Created via `domainPlugin()`, applied via `domain.use()`.
- * The generic preserves the domain's action type.
  */
-export type DomainPlugin = <TAction extends Action>(
-  domain: Domain<TAction>
-) => Domain<TAction>;
+export type DomainPlugin = (domain: Domain) => Domain;

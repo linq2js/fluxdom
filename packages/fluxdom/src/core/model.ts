@@ -1,5 +1,6 @@
 import {
   Action,
+  AnyAction,
   MutableStore,
   ModelActionContext,
   ModelActionMap,
@@ -7,7 +8,6 @@ import {
   ModelWithMethods,
   MapActionsUnion,
   Equality,
-  ModelFallbackHandler,
   ModelEffectsContext,
   ModelActionCreators,
   Domain,
@@ -15,21 +15,28 @@ import {
   Dispatch,
   TaskHelper,
   TaskOptions,
+  FallbackContext,
+  FallbackBuilder,
+  ActionMatcher,
 } from "../types";
 import { isPromiseLike } from "../utils";
 import { withUse } from "../withUse";
 
 /**
+ * Internal type for a registered fallback handler.
+ */
+interface FallbackEntry<TState> {
+  matchers: ActionMatcher<Action>[] | null; // null = catch-all
+  handler: (state: TState, action: Action) => TState;
+}
+
+/**
  * Create action creators and reducer from an action map.
  * Internal helper used by model().
  */
-function createModelActions<
-  TState,
-  TActionMap extends ModelActionMap<TState>,
-  TDomainAction extends Action
->(
+function createModelActions<TState, TActionMap extends ModelActionMap<TState>>(
   actionMap: TActionMap,
-  fallbackHandlers: ModelFallbackHandler<TState, TDomainAction>[]
+  fallbackEntries: FallbackEntry<TState>[]
 ) {
   // Create action creators
   const actionCreators: Record<string, (...args: any[]) => any> = {};
@@ -44,7 +51,7 @@ function createModelActions<
   // Create reducer that handles both action map and fallbacks
   const reducer = (
     state: TState,
-    action: MapActionsUnion<TState, TActionMap> | TDomainAction
+    action: MapActionsUnion<TState, TActionMap> | AnyAction
   ): TState => {
     // First, try action map handlers
     const handler = actionMap[action.type];
@@ -52,15 +59,73 @@ function createModelActions<
       return handler(state, ...(action as any).args);
     }
 
-    // Then, run through fallback handlers in order
+    // Then, run ALL matched fallback handlers in sequence
     let currentState = state;
-    for (const fallback of fallbackHandlers) {
-      currentState = fallback(currentState, action as TDomainAction);
+    for (const entry of fallbackEntries) {
+      // null matchers = catch-all
+      if (entry.matchers === null) {
+        currentState = entry.handler(currentState, action as Action);
+      } else {
+        // Check if any matcher matches
+        const matches = entry.matchers.some((m) => m.match(action as Action));
+        if (matches) {
+          currentState = entry.handler(currentState, action as Action);
+        }
+      }
     }
     return currentState;
   };
 
   return { actionCreators, reducer };
+}
+
+/**
+ * Create the fallback context with `.on()` method.
+ * Collects fallback entries for the reducer.
+ */
+function createFallbackContext<
+  TState,
+  TActionMap extends ModelActionMap<TState>
+>(
+  actionMap: TActionMap
+): {
+  ctx: FallbackContext<TState, TActionMap>;
+  entries: FallbackEntry<TState>[];
+} {
+  const entries: FallbackEntry<TState>[] = [];
+
+  const ctx: FallbackContext<TState, TActionMap> = {
+    reducers: actionMap,
+
+    on: (
+      actionOrHandler:
+        | ActionMatcher<Action>
+        | ActionMatcher<Action>[]
+        | ((state: TState, action: AnyAction) => TState),
+      handler?: (state: TState, action: Action) => TState
+    ): void => {
+      // Overload 1: catch-all handler (single function argument)
+      if (typeof actionOrHandler === "function" && !handler) {
+        entries.push({
+          matchers: null,
+          handler: actionOrHandler as (state: TState, action: Action) => TState,
+        });
+        return;
+      }
+
+      // Overload 2 & 3: action matcher(s) + handler
+      const matchers = Array.isArray(actionOrHandler)
+        ? actionOrHandler
+        : [actionOrHandler as ActionMatcher<Action>];
+
+      entries.push({
+        matchers,
+        handler: handler!,
+      });
+    },
+  };
+
+  return { ctx, entries };
 }
 
 /**
@@ -73,19 +138,13 @@ export function createModel<
   TActionMap extends ModelActionMap<TState>,
   TEffectsMap extends ModelEffectsMap<
     TState,
-    MapActionsUnion<TState, TActionMap>,
-    TDomainAction
-  >,
-  TDomainAction extends Action
+    MapActionsUnion<TState, TActionMap>
+  >
 >(
-  store: MutableStore<
-    TState,
-    MapActionsUnion<TState, TActionMap>,
-    TDomainAction
-  >,
+  store: MutableStore<TState, MapActionsUnion<TState, TActionMap>>,
   actionCreators: Record<string, (...args: any[]) => any>,
   effectsMap: TEffectsMap = {} as TEffectsMap
-): ModelWithMethods<TState, TActionMap, TEffectsMap, TDomainAction> {
+): ModelWithMethods<TState, TActionMap, TEffectsMap> {
   // Bind actions to store.dispatch
   const boundActions: Record<string, (...args: any[]) => void> = {};
   for (const [key, creator] of Object.entries(actionCreators)) {
@@ -105,41 +164,21 @@ export function createModel<
     ...effectsMap,
   });
 
-  return model as ModelWithMethods<
-    TState,
-    TActionMap,
-    TEffectsMap,
-    TDomainAction
-  >;
-}
-
-/**
- * Result of creating action context - includes the context and collected fallbacks.
- */
-interface ActionContextResult<TState, TDomainAction extends Action> {
-  ctx: ModelActionContext<TState, TDomainAction>;
-  fallbackHandlers: ModelFallbackHandler<TState, TDomainAction>[];
+  return model as ModelWithMethods<TState, TActionMap, TEffectsMap>;
 }
 
 /**
  * Create the action builder context with helpers.
  */
-export function createActionContext<TState, TDomainAction extends Action>(
+export function createActionContext<TState>(
   initial: TState
-): ActionContextResult<TState, TDomainAction> {
-  const fallbackHandlers: ModelFallbackHandler<TState, TDomainAction>[] = [];
-
-  const ctx: ModelActionContext<TState, TDomainAction> = {
+): ModelActionContext<TState> {
+  return {
     reducers: {
       reset: () => initial,
       set: (_, value: TState) => value,
     },
-    fallback: (handler: ModelFallbackHandler<TState, TDomainAction>) => {
-      fallbackHandlers.push(handler);
-    },
   };
-
-  return { ctx, fallbackHandlers };
 }
 
 /**
@@ -203,23 +242,22 @@ function createTaskHelper(dispatch: (action: Action) => void): TaskHelper {
 export interface BuildModelConfig<
   TState,
   TActionMap extends ModelActionMap<TState>,
-  TEffectsMap,
-  TDomainAction extends Action = Action
+  TEffectsMap
 > {
   name: string;
   initial: TState;
-  actions: (ctx: ModelActionContext<TState, TDomainAction>) => TActionMap;
+  actions: (ctx: ModelActionContext<TState>) => TActionMap;
+  fallback?: FallbackBuilder<TState>;
   effects?: (
     ctx: ModelEffectsContext<
       TState,
       TActionMap,
-      MapActionsUnion<TState, TActionMap>,
-      TDomainAction
+      MapActionsUnion<TState, TActionMap>
     >
   ) => TEffectsMap;
   equals?: Equality<TState>;
   /** Parent domain - passed internally by domain.model() */
-  domain: Domain<TDomainAction>;
+  domain: Domain;
 }
 
 /**
@@ -231,72 +269,78 @@ export function buildModel<
   TActionMap extends ModelActionMap<TState>,
   TEffectsMap extends ModelEffectsMap<
     TState,
-    MapActionsUnion<TState, TActionMap>,
-    TDomainAction
-  >,
-  TDomainAction extends Action
+    MapActionsUnion<TState, TActionMap>
+  >
 >(
   createStore: (
     name: string,
     initial: TState,
     reducer: (state: TState, action: any) => TState,
     equals?: Equality<TState>
-  ) => MutableStore<TState, any, TDomainAction>,
-  config: BuildModelConfig<TState, TActionMap, TEffectsMap, TDomainAction>
-): ModelWithMethods<TState, TActionMap, TEffectsMap, TDomainAction> {
+  ) => MutableStore<TState, any>,
+  config: BuildModelConfig<TState, TActionMap, TEffectsMap>
+): ModelWithMethods<TState, TActionMap, TEffectsMap> {
   const {
     name,
     initial,
     actions: actionBuilder,
+    fallback: fallbackBuilder,
     effects: effectsBuilder,
     equals,
     domain,
   } = config;
 
-  // 1. Create action context with helpers (collects fallback handlers)
-  const { ctx, fallbackHandlers } = createActionContext<TState, TDomainAction>(
-    initial
-  );
+  // 1. Create action context with helpers
+  const actionCtx = createActionContext<TState>(initial);
 
   // 2. Build action map from builder
-  const actionMap = actionBuilder(ctx);
+  const actionMap = actionBuilder(actionCtx);
 
-  // 3. Create action creators and reducer (with fallback handlers)
-  const { actionCreators, reducer } = createModelActions<
+  // 3. Create fallback context and collect entries
+  const { ctx: fallbackCtx, entries: fallbackEntries } = createFallbackContext<
     TState,
-    TActionMap,
-    TDomainAction
-  >(actionMap, fallbackHandlers);
+    TActionMap
+  >(actionMap);
 
-  // 4. Create the store with optional equality
+  // 4. Run fallback builder if provided (populates fallbackEntries)
+  if (fallbackBuilder) {
+    fallbackBuilder(fallbackCtx);
+  }
+
+  // 5. Create action creators and reducer (with fallback entries)
+  const { actionCreators, reducer } = createModelActions<TState, TActionMap>(
+    actionMap,
+    fallbackEntries
+  );
+
+  // 6. Create the store with optional equality
   const store = createStore(name, initial, reducer, equals);
 
-  // 5. Create task helper with dispatch
+  // 7. Create task helper with dispatch
   const task = createTaskHelper(store.dispatch);
 
-  // 6. Create effects context with full context for closure capture
+  // 8. Create effects context with full context for closure capture
   const effectsContext: ModelEffectsContext<
     TState,
     TActionMap,
-    MapActionsUnion<TState, TActionMap>,
-    TDomainAction
+    MapActionsUnion<TState, TActionMap>
   > = {
     task,
     actions: actionCreators as ModelActionCreators<TActionMap>,
     initial,
     dispatch: store.dispatch as Dispatch<
-      StoreContext<TState, MapActionsUnion<TState, TActionMap>, TDomainAction>,
+      StoreContext<TState, MapActionsUnion<TState, TActionMap>>,
       MapActionsUnion<TState, TActionMap>
     >,
     getState: store.getState,
     domain,
   };
 
-  // 7. Get effects map if provided (effects capture context in closure)
+  // 9. Get effects map if provided (effects capture context in closure)
   const effectsMap = effectsBuilder?.(effectsContext) ?? ({} as TEffectsMap);
 
-  // 8. Create and return the model
-  return createModel<TState, TActionMap, TEffectsMap, TDomainAction>(
+  // 10. Create and return the model
+  return createModel<TState, TActionMap, TEffectsMap>(
     store,
     actionCreators,
     effectsMap

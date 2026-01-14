@@ -1,5 +1,6 @@
 import {
   Action,
+  AnyAction,
   DispatchArgs,
   DomainContext,
   Equality,
@@ -33,7 +34,6 @@ import { scheduleNotifyHook } from "../hooks/scheduleNotifyHook";
  *
  * @template TState - Type of the store's state
  * @template TAction - Type of actions the store accepts directly
- * @template TDomainAction - Type of actions received from parent domain
  *
  * @param name - Unique identifier for the store (used for debugging)
  * @param initial - Initial state value
@@ -62,19 +62,15 @@ import { scheduleNotifyHook } from "../hooks/scheduleNotifyHook";
  *
  * @internal - Use `domain.store()` instead for public API
  */
-export function createStore<
-  TState,
-  TAction extends Action,
-  TDomainAction extends Action
->(
+export function createStore<TState, TAction extends Action>(
   name: string,
   initial: TState,
   reducer: Reducer<TState, TAction>,
-  domainContext: DomainContext<TDomainAction>,
+  domainContext: DomainContext,
   notifyParent?: OnDispatch,
   equals: Equality<TState> = "strict",
   meta?: StoreMeta
-): MutableStore<TState, TAction, TDomainAction> {
+): MutableStore<TState, TAction> {
   // ==========================================================================
   // Closure State
   // ==========================================================================
@@ -90,12 +86,7 @@ export function createStore<
 
   /** Emitter for dispatch notifications (onDispatch subscribers) */
   const dispatchEmitter =
-    emitter<
-      DispatchArgs<
-        TAction | TDomainAction,
-        StoreContext<TState, TAction, TDomainAction>
-      >
-    >();
+    emitter<DispatchArgs<TAction | AnyAction, StoreContext<TState, TAction>>>();
 
   // ==========================================================================
   // Public API
@@ -127,7 +118,7 @@ export function createStore<
     // Thunks are functions that receive context and can dispatch multiple
     // actions, perform async operations, or access current state.
     if (typeof actionOrThunk === "function") {
-      const context: StoreContext<TState, TAction, TDomainAction> = {
+      const context: StoreContext<TState, TAction> = {
         dispatch: dispatch as any,
         domain: domainContext,
         getState,
@@ -142,7 +133,7 @@ export function createStore<
     // -------------------------------------------------------------------------
     // Allows middleware-like behavior: logging, analytics, side effects
     // that need to see every action regardless of state change.
-    const context: StoreContext<TState, TAction, TDomainAction> = {
+    const context: StoreContext<TState, TAction> = {
       dispatch: dispatch as any,
       domain: domainContext,
       getState,
@@ -184,9 +175,9 @@ export function createStore<
    *
    * @internal - Called by domain, not for public use
    */
-  const _receiveDomainAction = (action: TDomainAction) => {
+  const _receiveDomainAction = (action: AnyAction) => {
     // 1. Notify onDispatch listeners (same as regular dispatch)
-    const context: StoreContext<TState, TAction, TDomainAction> = {
+    const context: StoreContext<TState, TAction> = {
       dispatch: dispatch as any,
       domain: domainContext,
       getState,

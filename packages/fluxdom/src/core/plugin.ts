@@ -1,4 +1,4 @@
-import { Action, Domain, DomainPlugin, DomainPluginConfig } from "../types";
+import { Domain, DomainPlugin, DomainPluginConfig } from "../types";
 
 /**
  * Create a domain plugin that hooks into domain, store, and module creation.
@@ -28,7 +28,7 @@ import { Action, Domain, DomainPlugin, DomainPluginConfig } from "../types";
  * @returns A plugin function that can be applied via `.use()`
  */
 export function domainPlugin(config: DomainPluginConfig): DomainPlugin {
-  return <TAction extends Action>(domain: Domain<TAction>): Domain<TAction> => {
+  return (domain: Domain): Domain => {
     // Register plugin hooks with the domain's internal plugin registry
     (domain as any)._registerPlugin(config);
     return domain;

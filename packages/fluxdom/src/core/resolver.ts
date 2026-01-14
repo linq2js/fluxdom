@@ -1,13 +1,13 @@
-import { Action, Domain, DomainPluginConfig, ModuleDef } from "../types";
+import { Domain, DomainPluginConfig, ModuleDef } from "../types";
 
-export type Resolver<TAction extends Action = Action> = {
+export type Resolver = {
   /** Resolve a module instance (cached singleton) */
-  get<TModule>(definition: ModuleDef<TModule, TAction>): TModule;
+  get<TModule>(definition: ModuleDef<TModule>): TModule;
 
   /** Override a module implementation (must be called before first get) */
   override<TModule>(
-    source: ModuleDef<TModule, TAction>,
-    override: ModuleDef<TModule, TAction>
+    source: ModuleDef<TModule>,
+    override: ModuleDef<TModule>
   ): VoidFunction;
 };
 
@@ -21,24 +21,25 @@ export type Resolver<TAction extends Action = Action> = {
  * @param getRootDomain - Getter for the root domain (set after domain object is created)
  * @param plugins - Array of plugin configs for module hooks
  */
-export function createResolver<TAction extends Action = Action>(
-  getRootDomain: () => Domain<TAction>,
+export function createResolver(
+  getRootDomain: () => Domain,
   plugins: DomainPluginConfig[] = []
-): Resolver<TAction> {
-  const moduleCache = new Map<ModuleDef<any, any>, any>();
-  const moduleOverrides = new Map<ModuleDef<any, any>, ModuleDef<any, any>>();
+): Resolver {
+  const moduleCache = new Map<ModuleDef<any>, any>();
+  const moduleOverrides = new Map<ModuleDef<any>, ModuleDef<any>>();
 
   /**
    * Resolve a module.
    * Modules are singletons - `create()` receives the root domain.
    */
-  const get = <TModule>(definition: ModuleDef<TModule, TAction>): TModule => {
+  const get = <TModule>(definition: ModuleDef<TModule>): TModule => {
     // 1. Check Overrides
     let effectiveDefinition = moduleOverrides.get(definition) || definition;
 
     // 2. Run pre hooks - allow definition transformation (respecting filter)
     for (const plugin of plugins) {
-      if (plugin.module?.filter && !plugin.module.filter(effectiveDefinition)) continue;
+      if (plugin.module?.filter && !plugin.module.filter(effectiveDefinition))
+        continue;
       if (plugin.module?.pre) {
         const result = plugin.module.pre(effectiveDefinition);
         if (result) effectiveDefinition = result;
@@ -56,7 +57,8 @@ export function createResolver<TAction extends Action = Action>(
 
     // 5. Run post hooks - side effects only (respecting filter)
     for (const plugin of plugins) {
-      if (plugin.module?.filter && !plugin.module.filter(effectiveDefinition)) continue;
+      if (plugin.module?.filter && !plugin.module.filter(effectiveDefinition))
+        continue;
       plugin.module?.post?.(instance, effectiveDefinition);
     }
 
@@ -68,8 +70,8 @@ export function createResolver<TAction extends Action = Action>(
    * Must be called before the module is first resolved.
    */
   const override = <TModule>(
-    source: ModuleDef<TModule, TAction>,
-    mock: ModuleDef<TModule, TAction>
+    source: ModuleDef<TModule>,
+    mock: ModuleDef<TModule>
   ): VoidFunction => {
     if (moduleCache.has(source)) {
       throw new Error(

@@ -1,6 +1,5 @@
 import { module } from "./module";
 import { domain } from "./domain";
-import { Action } from "../types";
 
 // =============================================================================
 // Types
@@ -93,8 +92,10 @@ export const TodoApiModule = module<ApiService>("todo-api", () => ({
  * - Models (state containers with bound methods)
  * - Modules (injectable services)
  * - Action dispatching and routing
+ *
+ * Note: Domain dispatch accepts AnyAction - type safety comes from action creators.
  */
-export const appDomain = domain<{ type: "RESET_ALL" }>("app");
+export const appDomain = domain("app");
 
 // =============================================================================
 // Todo Model
@@ -128,65 +129,64 @@ export const todoModel = appDomain.model({
   name: "todos",
   initial: initialState,
 
-  actions: (ctx) => {
-    // Handle known domain actions (action type inferred from domain<{ type: "RESET_ALL" }>)
-    ctx.fallback((state, action) => {
+  // Handle cross-cutting domain actions via fallback builder
+  fallback: (ctx) => {
+    // Use ctx.on() for declarative pattern matching
+    ctx.on((state, action) => {
       if (action.type === "RESET_ALL") return initialState;
+      if (action.type === "LOGOUT") return initialState;
       return state;
     });
 
-    // Handle unknown actions from plugins/middleware by specifying `action: Action`
-    ctx.fallback((state, action: Action) => {
-      if (action.type === "RESET_SOME") return initialState;
-      return state;
-    });
-
-    return {
-      setLoading: (state: TodoState): TodoState => ({
-        ...state,
-        loading: true,
-        error: null,
-      }),
-      setItems: (state: TodoState, items: Todo[]): TodoState => ({
-        ...state,
-        loading: false,
-        items,
-      }),
-      setError: (state: TodoState, error: string): TodoState => ({
-        ...state,
-        loading: false,
-        error,
-      }),
-      add: (state: TodoState, title: string): TodoState => ({
-        ...state,
-        items: [
-          {
-            userId: 1,
-            id: Date.now(),
-            title,
-            completed: false,
-          },
-          ...state.items,
-        ],
-      }),
-      addItem: (state: TodoState, item: Todo): TodoState => ({
-        ...state,
-        loading: false,
-        items: [item, ...state.items],
-      }),
-      toggle: (state: TodoState, id: number): TodoState => ({
-        ...state,
-        items: state.items.map((t) =>
-          t.id === id ? { ...t, completed: !t.completed } : t
-        ),
-      }),
-      remove: (state: TodoState, id: number): TodoState => ({
-        ...state,
-        items: state.items.filter((t) => t.id !== id),
-      }),
-      reset: ctx.reducers.reset,
-    };
+    // Can also reuse action handlers via ctx.reducers
+    // ctx.on(someAction, ctx.reducers.reset);
   },
+
+  actions: (actionsCtx) => ({
+    setLoading: (state: TodoState): TodoState => ({
+      ...state,
+      loading: true,
+      error: null,
+    }),
+    setItems: (state: TodoState, items: Todo[]): TodoState => ({
+      ...state,
+      loading: false,
+      items,
+    }),
+    setError: (state: TodoState, error: string): TodoState => ({
+      ...state,
+      loading: false,
+      error,
+    }),
+    add: (state: TodoState, title: string): TodoState => ({
+      ...state,
+      items: [
+        {
+          userId: 1,
+          id: Date.now(),
+          title,
+          completed: false,
+        },
+        ...state.items,
+      ],
+    }),
+    addItem: (state: TodoState, item: Todo): TodoState => ({
+      ...state,
+      loading: false,
+      items: [item, ...state.items],
+    }),
+    toggle: (state: TodoState, id: number): TodoState => ({
+      ...state,
+      items: state.items.map((t) =>
+        t.id === id ? { ...t, completed: !t.completed } : t
+      ),
+    }),
+    remove: (state: TodoState, id: number): TodoState => ({
+      ...state,
+      items: state.items.filter((t) => t.id !== id),
+    }),
+    reset: actionsCtx.reducers.reset,
+  }),
 
   effects: ({ task, domain, actions }) => ({
     // Using task() with lifecycle hooks
@@ -217,3 +217,72 @@ export const todoModel = appDomain.model({
     ),
   }),
 });
+
+// =============================================================================
+// Type Check: Domain Dispatch accepts AnyAction
+// =============================================================================
+
+/**
+ * Domain dispatch accepts any action (AnyAction).
+ * Type safety comes from action creators, not domain typing.
+ *
+ * This is similar to Redux - the store/domain just routes actions,
+ * action creators provide type safety.
+ */
+
+// --- Domain dispatch accepts any action ---
+const app = domain("app");
+
+// ✅ Can dispatch any action with any properties
+app.dispatch({ type: "ANYTHING" });
+app.dispatch({ type: "WITH_PAYLOAD", payload: 123 });
+app.dispatch({ type: "CUSTOM", value: "hello", extra: true, nested: { a: 1 } });
+
+// ✅ Type safety comes from action creators (recommended)
+// const todoActions = actions("todos", {
+//   add: (title: string) => ({ title }),
+//   remove: (id: number) => ({ id }),
+// });
+// app.dispatch(todoActions.add("Hello")); // Type-safe via action creator
+
+// --- TDomainAction is for module/context typing, not dispatch restriction ---
+// The type parameter is still useful for:
+// - Module resolution typing
+// - Context typing in thunks
+// But dispatch always accepts AnyAction
+
+// =============================================================================
+// matches() Utility - Type-safe action matching
+// =============================================================================
+
+import { matches } from "../utils";
+import { actions } from "./actions";
+import { Action } from "../types";
+
+const todoActions = actions("todos", {
+  add: (title: string) => ({ title }),
+  remove: (id: number) => id,
+});
+
+// ✅ Use matches() in dispatch listeners for type-safe action handling
+appDomain.onAnyDispatch(({ action }) => {
+  // Single action - type narrowing works!
+  if (matches(action, todoActions.add)) {
+    // action is narrowed to { type: "todos/add", payload: { title: string } }
+    console.log("Added todo:", action.payload.title);
+  }
+
+  // Multiple actions
+  if (matches(action, [todoActions.add, todoActions.remove])) {
+    console.log("Todo list changed");
+  }
+});
+
+// ✅ Type guard narrows broad Action type
+export function handleAction(action: Action) {
+  if (matches(action, todoActions.add)) {
+    // action.payload.title is typed as string
+    const title: string = action.payload.title;
+    console.log(title);
+  }
+}
