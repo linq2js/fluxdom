@@ -5,8 +5,8 @@ import {
   DomainContext,
   DomainConfig,
   DomainMeta,
+  DomainPluginConfig,
   MutableStore,
-  Reducer,
   Thunk,
   ResolveModule,
   DispatchArgs,
@@ -22,8 +22,6 @@ import {
   ModelWithMethods,
   MapActionsUnion,
   StoreConfig,
-  DomainPluginConfig,
-  FallbackBuilder,
 } from "../types";
 import { buildModel } from "./model";
 
@@ -40,20 +38,20 @@ function createDomain(
   notifyParent?: OnDispatch,
   resolver?: Resolver,
   root?: Domain,
-  inheritedPlugins?: DomainPluginConfig[],
-  meta?: DomainMeta
+  meta?: DomainMeta,
+  inheritedPlugins?: DomainPluginConfig[]
 ): Domain {
   // Root domain placeholder - set after domainObject is created
   let domainObjectRef: Domain | null = null;
 
-  // Plugin registry - inherited from parent plus locally registered
+  // Plugin registry - inherited from parent
   const plugins: DomainPluginConfig[] = inheritedPlugins
     ? [...inheritedPlugins]
     : [];
 
   // Create resolver for root domain (subdomains receive it from parent)
   const resolverInstance =
-    resolver ?? createResolver(() => domainObjectRef!.root, plugins);
+    resolver ?? createResolver(() => domainObjectRef!.root);
 
   // Closure State
   const stores = new Set<Store<any>>();
@@ -138,8 +136,30 @@ function createDomain(
   };
 
   // --- Module System ---
-  const get: ResolveModule = (factory) => {
-    return resolverInstance.get(factory);
+  const get: ResolveModule = (moduleDef) => {
+    // Run pre hooks (in order)
+    let effectiveDef = moduleDef;
+    for (const plugin of plugins) {
+      const hooks = plugin.module;
+      if (!hooks) continue;
+      if (hooks.filter && !hooks.filter(effectiveDef)) continue;
+      if (hooks.pre) {
+        const result = hooks.pre(effectiveDef);
+        if (result) effectiveDef = result;
+      }
+    }
+
+    const instance = resolverInstance.get(effectiveDef);
+
+    // Run post hooks (in order)
+    for (const plugin of plugins) {
+      const hooks = plugin.module;
+      if (!hooks) continue;
+      if (hooks.filter && !hooks.filter(effectiveDef)) continue;
+      hooks.post?.(instance, effectiveDef);
+    }
+
+    return instance;
   };
 
   const override = <TModule>(
@@ -167,13 +187,14 @@ function createDomain(
   function store<TState, TStoreActions extends Action>(
     config: StoreConfig<TState, TStoreActions>
   ): MutableStore<TState, TStoreActions> {
-    // Run pre hooks - allow config transformation (respecting filter)
+    // Run pre hooks (in order)
     let effectiveConfig = config;
     for (const plugin of plugins) {
-      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig))
-        continue;
-      if (plugin.store?.pre) {
-        const result = plugin.store.pre(effectiveConfig);
+      const hooks = plugin.store;
+      if (!hooks) continue;
+      if (hooks.filter && !hooks.filter(effectiveConfig)) continue;
+      if (hooks.pre) {
+        const result = hooks.pre(effectiveConfig);
         if (result)
           effectiveConfig = result as StoreConfig<TState, TStoreActions>;
       }
@@ -193,42 +214,50 @@ function createDomain(
     );
     stores.add(newStore);
 
-    // Run post hooks - side effects only (respecting filter)
+    // Run post hooks (in order)
     for (const plugin of plugins) {
-      if (plugin.store?.filter && !plugin.store.filter(effectiveConfig))
-        continue;
-      plugin.store?.post?.(newStore, effectiveConfig);
+      const hooks = plugin.store;
+      if (!hooks) continue;
+      if (hooks.filter && !hooks.filter(effectiveConfig)) continue;
+      hooks.post?.(newStore, effectiveConfig);
     }
 
     return newStore;
   }
 
-  const createSubDomain = (childName: string, meta?: DomainMeta): Domain => {
-    // Run pre hooks - allow config transformation (respecting filter)
-    let config: DomainConfig = { name: childName, meta };
+  const createSubDomain = (
+    childName: string,
+    childMeta?: DomainMeta
+  ): Domain => {
+    // Run pre hooks (in order)
+    let domainConfig: DomainConfig = { name: childName, meta: childMeta };
     for (const plugin of plugins) {
-      if (plugin.domain?.filter && !plugin.domain.filter(config)) continue;
-      if (plugin.domain?.pre) {
-        const result = plugin.domain.pre(config);
-        if (result) config = result;
+      const hooks = plugin.domain;
+      if (!hooks) continue;
+      if (hooks.filter && !hooks.filter(domainConfig)) continue;
+      if (hooks.pre) {
+        const result = hooks.pre(domainConfig);
+        if (result) domainConfig = result;
       }
     }
 
-    const fullName = `${name}.${config.name}`;
+    const fullName = `${name}.${domainConfig.name}`;
     const sub = createDomain(
       fullName,
       handleChildDispatch,
       resolverInstance,
       domainObject.root,
-      plugins, // Pass plugins to child domain
-      config.meta
+      domainConfig.meta,
+      plugins // Pass plugins to child for inheritance
     );
     subdomains.add(sub);
 
-    // Run post hooks - side effects only (respecting filter)
+    // Run post hooks (in order)
     for (const plugin of plugins) {
-      if (plugin.domain?.filter && !plugin.domain.filter(config)) continue;
-      plugin.domain?.post?.(sub, config);
+      const hooks = plugin.domain;
+      if (!hooks) continue;
+      if (hooks.filter && !hooks.filter(domainConfig)) continue;
+      hooks.post?.(sub, domainConfig);
     }
 
     return sub;
@@ -246,7 +275,6 @@ function createDomain(
     name: string;
     initial: TState;
     actions: (ctx: ModelActionContext<TState>) => TActionMap;
-    fallback?: FallbackBuilder<TState>;
     effects?: (
       ctx: ModelEffectsContext<
         TState,
@@ -256,23 +284,16 @@ function createDomain(
     ) => TEffectsMap;
     equals?: Equality<TState>;
   }): ModelWithMethods<TState, TActionMap, TEffectsMap> => {
-    // Create a store factory that delegates to our store() method
-    const createStoreForModel = (
-      storeName: string,
-      initialState: TState,
-      reducer: Reducer<TState, any>,
-      equals?: Equality<TState>
-    ) => store({ name: storeName, initial: initialState, reducer, equals });
-
-    return buildModel<TState, TActionMap, TEffectsMap>(createStoreForModel, {
+    return buildModel<TState, TActionMap, TEffectsMap>({
       ...config,
       domain: domainObject,
     });
   };
 
-  // Internal: Register a plugin
-  const _registerPlugin = (config: DomainPluginConfig) => {
+  // --- Plugin Method ---
+  const plugin = (config: DomainPluginConfig): Domain => {
     plugins.push(config);
+    return domainObject;
   };
 
   // Construct the object
@@ -289,8 +310,8 @@ function createDomain(
     derived,
     domain: createSubDomain,
     model,
+    plugin,
     _receiveDomainAction,
-    _registerPlugin,
   }) as Domain;
 
   // Set root reference (for root domain, it's self; for subdomain, it's passed in)

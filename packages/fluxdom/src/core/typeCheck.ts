@@ -1,5 +1,21 @@
 import { module } from "./module";
 import { domain } from "./domain";
+import { actions } from "./actions";
+
+// =============================================================================
+// Global Actions - Cross-cutting actions for entire app
+// =============================================================================
+
+/**
+ * Global actions that can be dispatched to reset/clear app state.
+ * Using actions() creates type-safe action creators with .match() for use with ctx.on()
+ */
+export const globalActions = actions("global", {
+  /** Reset all app state */
+  resetAll: true,
+  /** User logged out - clear sensitive data */
+  logout: true,
+});
 
 // =============================================================================
 // Types
@@ -129,64 +145,63 @@ export const todoModel = appDomain.model({
   name: "todos",
   initial: initialState,
 
-  // Handle cross-cutting domain actions via fallback builder
-  fallback: (ctx) => {
-    // Use ctx.on() for declarative pattern matching
-    ctx.on((state, action) => {
-      if (action.type === "RESET_ALL") return initialState;
-      if (action.type === "LOGOUT") return initialState;
-      return state;
-    });
+  actions: (ctx) => {
+    // ✅ Handle cross-cutting domain actions via ctx.on()
+    ctx.on(globalActions.resetAll, () => initialState);
+    ctx.on(globalActions.logout, () => initialState);
+
+    // ✅ Handle multiple actions with a single handler
+    // ctx.on([globalActions.resetAll, globalActions.logout], () => initialState);
 
     // Can also reuse action handlers via ctx.reducers
     // ctx.on(someAction, ctx.reducers.reset);
-  },
 
-  actions: (actionsCtx) => ({
-    setLoading: (state: TodoState): TodoState => ({
-      ...state,
-      loading: true,
-      error: null,
-    }),
-    setItems: (state: TodoState, items: Todo[]): TodoState => ({
-      ...state,
-      loading: false,
-      items,
-    }),
-    setError: (state: TodoState, error: string): TodoState => ({
-      ...state,
-      loading: false,
-      error,
-    }),
-    add: (state: TodoState, title: string): TodoState => ({
-      ...state,
-      items: [
-        {
-          userId: 1,
-          id: Date.now(),
-          title,
-          completed: false,
-        },
-        ...state.items,
-      ],
-    }),
-    addItem: (state: TodoState, item: Todo): TodoState => ({
-      ...state,
-      loading: false,
-      items: [item, ...state.items],
-    }),
-    toggle: (state: TodoState, id: number): TodoState => ({
-      ...state,
-      items: state.items.map((t) =>
-        t.id === id ? { ...t, completed: !t.completed } : t
-      ),
-    }),
-    remove: (state: TodoState, id: number): TodoState => ({
-      ...state,
-      items: state.items.filter((t) => t.id !== id),
-    }),
-    reset: actionsCtx.reducers.reset,
-  }),
+    return {
+      setLoading: (state: TodoState): TodoState => ({
+        ...state,
+        loading: true,
+        error: null,
+      }),
+      setItems: (state: TodoState, items: Todo[]): TodoState => ({
+        ...state,
+        loading: false,
+        items,
+      }),
+      setError: (state: TodoState, error: string): TodoState => ({
+        ...state,
+        loading: false,
+        error,
+      }),
+      add: (state: TodoState, title: string): TodoState => ({
+        ...state,
+        items: [
+          {
+            userId: 1,
+            id: Date.now(),
+            title,
+            completed: false,
+          },
+          ...state.items,
+        ],
+      }),
+      addItem: (state: TodoState, item: Todo): TodoState => ({
+        ...state,
+        loading: false,
+        items: [item, ...state.items],
+      }),
+      toggle: (state: TodoState, id: number): TodoState => ({
+        ...state,
+        items: state.items.map((t) =>
+          t.id === id ? { ...t, completed: !t.completed } : t
+        ),
+      }),
+      remove: (state: TodoState, id: number): TodoState => ({
+        ...state,
+        items: state.items.filter((t) => t.id !== id),
+      }),
+      reset: ctx.reducers.reset,
+    };
+  },
 
   effects: ({ task, domain, actions }) => ({
     // Using task() with lifecycle hooks
@@ -252,14 +267,14 @@ app.dispatch({ type: "CUSTOM", value: "hello", extra: true, nested: { a: 1 } });
 // But dispatch always accepts AnyAction
 
 // =============================================================================
-// matches() Utility - Type-safe action matching
+// matches() Utility - Type-safe action matching in listeners
 // =============================================================================
 
 import { matches } from "../utils";
-import { actions } from "./actions";
 import { Action } from "../types";
 
-const todoActions = actions("todos", {
+// Define some local actions
+const localTodoActions = actions("local-todos", {
   add: (title: string) => ({ title }),
   remove: (id: number) => id,
 });
@@ -267,20 +282,30 @@ const todoActions = actions("todos", {
 // ✅ Use matches() in dispatch listeners for type-safe action handling
 appDomain.onAnyDispatch(({ action }) => {
   // Single action - type narrowing works!
-  if (matches(action, todoActions.add)) {
-    // action is narrowed to { type: "todos/add", payload: { title: string } }
+  if (matches(action, localTodoActions.add)) {
+    // action is narrowed to { type: "local-todos/add", payload: { title: string } }
     console.log("Added todo:", action.payload.title);
   }
 
   // Multiple actions
-  if (matches(action, [todoActions.add, todoActions.remove])) {
-    console.log("Todo list changed");
+  if (matches(action, [localTodoActions.add, localTodoActions.remove])) {
+    console.log("Local todo list changed");
+  }
+
+  // ✅ Use matches() with global actions too
+  if (matches(action, globalActions.resetAll)) {
+    console.log("App is resetting...");
+  }
+
+  // ✅ Match multiple global actions
+  if (matches(action, [globalActions.resetAll, globalActions.logout])) {
+    console.log("Clearing local cache...");
   }
 });
 
 // ✅ Type guard narrows broad Action type
 export function handleAction(action: Action) {
-  if (matches(action, todoActions.add)) {
+  if (matches(action, localTodoActions.add)) {
     // action.payload.title is typed as string
     const title: string = action.payload.title;
     console.log(title);

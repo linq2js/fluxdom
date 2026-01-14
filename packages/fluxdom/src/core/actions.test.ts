@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { actions } from "./actions";
-import { domain } from "./domain";
 import { matches } from "../utils";
 import { Action } from "../types";
 
@@ -115,139 +114,6 @@ describe("actions", () => {
     });
   });
 
-  describe("actions.reducer", () => {
-    it("should create reducer from single action map", () => {
-      const counterActions = actions({
-        increment: true,
-        decrement: true,
-        incrementBy: (n: number) => n,
-      });
-
-      const reducer = actions.reducer(
-        counterActions,
-        (state: number, action) => {
-          switch (action.type) {
-            case "increment":
-              return state + 1;
-            case "decrement":
-              return state - 1;
-            case "incrementBy":
-              return state + action.payload;
-            default:
-              return state;
-          }
-        }
-      );
-
-      expect(reducer(0, counterActions.increment())).toBe(1);
-      expect(reducer(5, counterActions.decrement())).toBe(4);
-      expect(reducer(0, counterActions.incrementBy(10))).toBe(10);
-    });
-
-    it("should create reducer from multiple action maps", () => {
-      const counterActions = actions({
-        increment: true,
-        incrementBy: (n: number) => n,
-      });
-
-      const appActions = actions({
-        resetAll: "RESET_ALL" as const,
-      });
-
-      const reducer = actions.reducer(
-        [counterActions, appActions],
-        (state: number, action) => {
-          switch (action.type) {
-            case "increment":
-              return state + 1;
-            case "incrementBy":
-              return state + action.payload;
-            case "RESET_ALL":
-              return 0;
-            default:
-              return state;
-          }
-        }
-      );
-
-      expect(reducer(0, counterActions.increment())).toBe(1);
-      expect(reducer(5, counterActions.incrementBy(10))).toBe(15);
-      expect(reducer(100, appActions.resetAll())).toBe(0);
-    });
-
-    it("should work with domain.store", () => {
-      const app = domain("app");
-
-      const counterActions = actions({
-        increment: true,
-        set: (value: number) => value,
-      });
-
-      const reducer = actions.reducer(
-        counterActions,
-        (state: number, action) => {
-          switch (action.type) {
-            case "increment":
-              return state + 1;
-            case "set":
-              return action.payload;
-            default:
-              return state;
-          }
-        }
-      );
-
-      const store = app.store({ name: "counter", initial: 0, reducer });
-
-      store.dispatch(counterActions.increment());
-      expect(store.getState()).toBe(1);
-
-      store.dispatch(counterActions.set(100));
-      expect(store.getState()).toBe(100);
-    });
-
-    it("should handle domain actions combined with store actions", () => {
-      const app = domain("app");
-
-      const counterActions = actions({
-        increment: true,
-        set: (value: number) => value,
-      });
-
-      const domainActions = actions({
-        resetAll: "RESET_ALL" as const,
-      });
-
-      const reducer = actions.reducer(
-        [counterActions, domainActions],
-        (state: number, action) => {
-          switch (action.type) {
-            case "increment":
-              return state + 1;
-            case "set":
-              return action.payload;
-            case "RESET_ALL":
-              return 0;
-            default:
-              return state;
-          }
-        }
-      );
-
-      const store = app.store({ name: "counter", initial: 0, reducer });
-
-      store.dispatch(counterActions.increment());
-      expect(store.getState()).toBe(1);
-
-      store.dispatch(counterActions.increment());
-      expect(store.getState()).toBe(2);
-
-      // Domain action
-      app.dispatch({ type: "RESET_ALL" });
-      expect(store.getState()).toBe(0);
-    });
-  });
-
   describe("type safety", () => {
     it("should infer payload types correctly", () => {
       const todoActions = actions({
@@ -264,32 +130,6 @@ describe("actions", () => {
       expect(addAction.payload.text).toBe("Buy milk");
       expect(toggleAction.payload).toBe(123);
       expect(removeAction.payload).toBe(456);
-    });
-
-    it("should infer action union in reducer", () => {
-      const counterActions = actions({
-        increment: true,
-        set: (value: number) => value,
-      });
-
-      // In the reducer, action should be typed as the union
-      const reducer = actions.reducer(
-        counterActions,
-        (state: number, action) => {
-          // TypeScript should narrow the type based on action.type
-          if (action.type === "increment") {
-            return state + 1;
-          }
-          if (action.type === "set") {
-            // action.payload should be number here
-            return action.payload;
-          }
-          return state;
-        }
-      );
-
-      expect(reducer(0, counterActions.increment())).toBe(1);
-      expect(reducer(0, counterActions.set(50))).toBe(50);
     });
   });
 
@@ -407,39 +247,6 @@ describe("actions", () => {
         type: "COUNTER_SET", // Not "counter/COUNTER_SET"
         payload: { value: 10 },
       });
-    });
-
-    it("should work with actions.reducer", () => {
-      const todoActions = actions("todos", {
-        add: (title: string) => ({ title }),
-        toggle: (id: number) => id,
-      });
-
-      interface Todo {
-        id: number;
-        title: string;
-        done: boolean;
-      }
-
-      const reducer = actions.reducer(todoActions, (state: Todo[], action) => {
-        switch (action.type) {
-          case "todos/add":
-            return [
-              ...state,
-              { id: Date.now(), title: action.payload.title, done: false },
-            ];
-          case "todos/toggle":
-            return state.map((t) =>
-              t.id === action.payload ? { ...t, done: !t.done } : t
-            );
-          default:
-            return state;
-        }
-      });
-
-      const state1 = reducer([], todoActions.add("Buy milk"));
-      expect(state1).toHaveLength(1);
-      expect(state1[0].title).toBe("Buy milk");
     });
 
     it("should have correct match function with prefixed types", () => {

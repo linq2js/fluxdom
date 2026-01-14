@@ -15,8 +15,6 @@ import {
   Dispatch,
   TaskHelper,
   TaskOptions,
-  FallbackContext,
-  FallbackBuilder,
   ActionMatcher,
 } from "../types";
 import { isPromiseLike } from "../utils";
@@ -80,55 +78,6 @@ function createModelActions<TState, TActionMap extends ModelActionMap<TState>>(
 }
 
 /**
- * Create the fallback context with `.on()` method.
- * Collects fallback entries for the reducer.
- */
-function createFallbackContext<
-  TState,
-  TActionMap extends ModelActionMap<TState>
->(
-  actionMap: TActionMap
-): {
-  ctx: FallbackContext<TState, TActionMap>;
-  entries: FallbackEntry<TState>[];
-} {
-  const entries: FallbackEntry<TState>[] = [];
-
-  const ctx: FallbackContext<TState, TActionMap> = {
-    reducers: actionMap,
-
-    on: (
-      actionOrHandler:
-        | ActionMatcher<Action>
-        | ActionMatcher<Action>[]
-        | ((state: TState, action: AnyAction) => TState),
-      handler?: (state: TState, action: Action) => TState
-    ): void => {
-      // Overload 1: catch-all handler (single function argument)
-      if (typeof actionOrHandler === "function" && !handler) {
-        entries.push({
-          matchers: null,
-          handler: actionOrHandler as (state: TState, action: Action) => TState,
-        });
-        return;
-      }
-
-      // Overload 2 & 3: action matcher(s) + handler
-      const matchers = Array.isArray(actionOrHandler)
-        ? actionOrHandler
-        : [actionOrHandler as ActionMatcher<Action>];
-
-      entries.push({
-        matchers,
-        handler: handler!,
-      });
-    },
-  };
-
-  return { ctx, entries };
-}
-
-/**
  * Create a model from a store, action map, and optional effects map.
  * Model IS the store with bound action/effect methods attached.
  * This means models can be used anywhere a store is expected (useSelector, derived, etc.)
@@ -168,17 +117,49 @@ export function createModel<
 }
 
 /**
- * Create the action builder context with helpers.
+ * Create the action builder context with helpers and fallback entry collection.
  */
-export function createActionContext<TState>(
-  initial: TState
-): ModelActionContext<TState> {
-  return {
+export function createActionContext<TState>(initial: TState): {
+  ctx: ModelActionContext<TState>;
+  entries: FallbackEntry<TState>[];
+} {
+  const entries: FallbackEntry<TState>[] = [];
+
+  const ctx: ModelActionContext<TState> = {
     reducers: {
       reset: () => initial,
       set: (_, value: TState) => value,
     },
+
+    on: (
+      actionOrHandler:
+        | ActionMatcher<Action>
+        | ActionMatcher<Action>[]
+        | ((state: TState, action: AnyAction) => TState),
+      handler?: (state: TState, action: Action) => TState
+    ): void => {
+      // Overload 1: catch-all handler (single function argument)
+      if (typeof actionOrHandler === "function" && !handler) {
+        entries.push({
+          matchers: null,
+          handler: actionOrHandler as (state: TState, action: Action) => TState,
+        });
+        return;
+      }
+
+      // Overload 2 & 3: action matcher(s) + handler
+      const matchers = Array.isArray(actionOrHandler)
+        ? actionOrHandler
+        : [actionOrHandler as ActionMatcher<Action>];
+
+      entries.push({
+        matchers,
+        handler: handler!,
+      });
+    },
   };
+
+  return { ctx, entries };
 }
 
 /**
@@ -247,7 +228,6 @@ export interface BuildModelConfig<
   name: string;
   initial: TState;
   actions: (ctx: ModelActionContext<TState>) => TActionMap;
-  fallback?: FallbackBuilder<TState>;
   effects?: (
     ctx: ModelEffectsContext<
       TState,
@@ -272,49 +252,37 @@ export function buildModel<
     MapActionsUnion<TState, TActionMap>
   >
 >(
-  createStore: (
-    name: string,
-    initial: TState,
-    reducer: (state: TState, action: any) => TState,
-    equals?: Equality<TState>
-  ) => MutableStore<TState, any>,
   config: BuildModelConfig<TState, TActionMap, TEffectsMap>
 ): ModelWithMethods<TState, TActionMap, TEffectsMap> {
   const {
     name,
     initial,
     actions: actionBuilder,
-    fallback: fallbackBuilder,
     effects: effectsBuilder,
     equals,
     domain,
   } = config;
 
-  // 1. Create action context with helpers
-  const actionCtx = createActionContext<TState>(initial);
+  const createStore = (
+    reducer: (state: TState, action: any) => TState
+  ): MutableStore<TState, any> =>
+    domain.store({ name, initial, reducer, equals });
 
-  // 2. Build action map from builder
+  // 1. Create action context with helpers (also collects fallback entries via ctx.on())
+  const { ctx: actionCtx, entries: fallbackEntries } =
+    createActionContext<TState>(initial);
+
+  // 2. Build action map from builder (ctx.on() calls populate fallbackEntries)
   const actionMap = actionBuilder(actionCtx);
 
-  // 3. Create fallback context and collect entries
-  const { ctx: fallbackCtx, entries: fallbackEntries } = createFallbackContext<
-    TState,
-    TActionMap
-  >(actionMap);
-
-  // 4. Run fallback builder if provided (populates fallbackEntries)
-  if (fallbackBuilder) {
-    fallbackBuilder(fallbackCtx);
-  }
-
-  // 5. Create action creators and reducer (with fallback entries)
+  // 3. Create action creators and reducer (with fallback entries)
   const { actionCreators, reducer } = createModelActions<TState, TActionMap>(
     actionMap,
     fallbackEntries
   );
 
   // 6. Create the store with optional equality
-  const store = createStore(name, initial, reducer, equals);
+  const store = createStore(reducer);
 
   // 7. Create task helper with dispatch
   const task = createTaskHelper(store.dispatch);

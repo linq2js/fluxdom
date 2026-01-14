@@ -24,7 +24,6 @@ export { derived } from "./core/derived";
 export { module } from "./core/module";
 export { batch } from "./core/batch";
 export { actions } from "./core/actions";
-export { domainPlugin } from "./core/plugin";
 
 // Action types
 export type {

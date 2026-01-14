@@ -693,7 +693,7 @@ describe("model()", () => {
   });
 
   describe("domain integration", () => {
-    it("should receive domain actions via top-level fallback", () => {
+    it("should receive domain actions via ctx.on() in actions builder", () => {
       type AppAction =
         | { type: "RESET_ALL" }
         | { type: "SET_VALUE"; value: number };
@@ -702,24 +702,25 @@ describe("model()", () => {
       const counter = app.model({
         name: "counter",
         initial: 0,
-        // Fallback builder handles domain actions
-        fallback: (ctx) => {
+        actions: (ctx) => {
+          // Handle domain actions with ctx.on()
           ctx.on((state, action) => {
             if (action.type === "RESET_ALL") return 0;
             if (action.type === "SET_VALUE")
               return (action as { type: "SET_VALUE"; value: number }).value;
             return state;
           });
+
+          return {
+            increment: (state) => state + 1,
+          };
         },
-        actions: () => ({
-          increment: (state) => state + 1,
-        }),
       });
 
       counter.increment();
       expect(counter.getState()).toBe(1);
 
-      // Domain action handled by fallback
+      // Domain action handled by ctx.on()
       app.dispatch({ type: "RESET_ALL" });
       expect(counter.getState()).toBe(0);
 
@@ -732,15 +733,15 @@ describe("model()", () => {
       expect(counter.getState()).toBe(100);
     });
 
-    it("should handle multiple action types in single fallback", () => {
+    it("should handle multiple action types in single ctx.on() handler", () => {
       type AppAction = { type: "RESET_ALL" } | { type: "DOUBLE" };
       const app = domain<AppAction>("app");
 
       const counter = app.model({
         name: "counter",
         initial: 5,
-        // Fallback builder handles multiple action types
-        fallback: (ctx) => {
+        actions: (ctx) => {
+          // Handle multiple action types
           ctx.on((state, action) => {
             switch (action.type) {
               case "RESET_ALL":
@@ -751,15 +752,16 @@ describe("model()", () => {
                 return state;
             }
           });
+
+          return {
+            increment: (state) => state + 1,
+          };
         },
-        actions: () => ({
-          increment: (state) => state + 1,
-        }),
       });
 
       expect(counter.getState()).toBe(5);
 
-      // Fallback handles RESET_ALL
+      // ctx.on() handles RESET_ALL
       app.dispatch({ type: "RESET_ALL" });
       expect(counter.getState()).toBe(0);
 
@@ -768,12 +770,12 @@ describe("model()", () => {
       counter.increment();
       expect(counter.getState()).toBe(3);
 
-      // Fallback handles DOUBLE
+      // ctx.on() handles DOUBLE
       app.dispatch({ type: "DOUBLE" });
       expect(counter.getState()).toBe(6);
     });
 
-    it("should not call fallback for handled model actions", () => {
+    it("should not call ctx.on() handler for model actions", () => {
       const app = domain<{ type: "DOMAIN_ACTION" }>("app");
 
       const handlerSpy = vi.fn((state: number) => state);
@@ -781,28 +783,29 @@ describe("model()", () => {
       const counter = app.model({
         name: "counter",
         initial: 0,
-        fallback: (ctx) => {
+        actions: (ctx) => {
           ctx.on(handlerSpy);
+
+          return {
+            increment: (state) => state + 1,
+          };
         },
-        actions: () => ({
-          increment: (state) => state + 1,
-        }),
       });
 
-      // Model action - should NOT trigger fallback
+      // Model action - should NOT trigger ctx.on() handler
       counter.increment();
       expect(handlerSpy).not.toHaveBeenCalled();
 
-      // Domain action - should trigger fallback
+      // Domain action - should trigger ctx.on() handler
       app.dispatch({ type: "DOMAIN_ACTION" });
       expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("should receive domain actions (without fallback - unchanged)", () => {
+    it("should receive domain actions (without ctx.on() - unchanged)", () => {
       type AppAction = { type: "RESET_ALL" };
       const app = domain<AppAction>("app");
 
-      // Without fallback, domain actions are ignored
+      // Without ctx.on(), domain actions are ignored
       const counter = app.model({
         name: "counter",
         initial: 0,
@@ -827,7 +830,7 @@ describe("model()", () => {
       const counter = app.model({
         name: "counter",
         initial: 5,
-        fallback: (ctx) => {
+        actions: (ctx) => {
           // Both handlers should run for MY_ACTION
           ctx.on((state, action) => {
             if (action.type === "MY_ACTION") return handler1Spy(state);
@@ -837,10 +840,11 @@ describe("model()", () => {
             if (action.type === "MY_ACTION") return handler2Spy(state);
             return state;
           });
+
+          return {
+            set: (_state, n: number) => n,
+          };
         },
-        actions: () => ({
-          set: (_state, n: number) => n,
-        }),
       });
 
       // Initial state: 5
@@ -855,33 +859,34 @@ describe("model()", () => {
       expect(counter.getState()).toBe(12);
     });
 
-    it("should provide ctx.reducers with action handlers", () => {
+    it("should provide ctx.reducers for reusing handlers in ctx.on()", () => {
       const app = domain("app");
 
       const counter = app.model({
         name: "counter",
         initial: 10,
-        fallback: (ctx) => {
-          // Reuse the reset handler
+        actions: (ctx) => {
+          // Reuse the reset handler via ctx.reducers
           ctx.on((state, action) => {
-            if (action.type === "RESET_VIA_FALLBACK") {
+            if (action.type === "RESET_VIA_DOMAIN") {
               return ctx.reducers.reset(state);
             }
             return state;
           });
+
+          return {
+            increment: (state) => state + 1,
+            reset: ctx.reducers.reset,
+          };
         },
-        actions: (actionsCtx) => ({
-          increment: (state) => state + 1,
-          reset: actionsCtx.reducers.reset,
-        }),
       });
 
       counter.increment();
       counter.increment();
       expect(counter.getState()).toBe(12);
 
-      // Use fallback to reset via reused handler
-      app.dispatch({ type: "RESET_VIA_FALLBACK" });
+      // Use ctx.on() to reset via reused handler
+      app.dispatch({ type: "RESET_VIA_DOMAIN" });
       expect(counter.getState()).toBe(10); // back to initial
     });
 

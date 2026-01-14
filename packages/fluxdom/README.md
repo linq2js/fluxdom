@@ -694,13 +694,13 @@ todoStore.use((store) => {
 
 ### Domain Plugins — Hook Into Creation
 
-Use `domainPlugin()` to intercept domain, store, and module creation. Perfect for logging, DevTools integration, persistence, and more.
+Use `domain.plugin()` to intercept domain, store, and module creation. Perfect for logging, DevTools integration, persistence, and more.
 
 ```ts
-import { domain, domainPlugin } from "fluxdom";
+import { domain } from "fluxdom";
 
-// Create a logging plugin
-const logging = domainPlugin({
+// Create a domain with logging plugin
+const app = domain("app").plugin({
   store: {
     pre: (config) => {
       console.log("[store:pre]", config.name);
@@ -718,9 +718,6 @@ const logging = domainPlugin({
     post: (instance, def) => console.log("[module:created]", def.name),
   },
 });
-
-// Apply to domain - plugins are inherited by child domains
-const app = domain("app").use(logging);
 ```
 
 #### Plugin Hooks
@@ -740,7 +737,7 @@ const app = domain("app").use(logging);
 #### Example: DevTools Integration
 
 ```ts
-const devTools = domainPlugin({
+const app = domain("app").plugin({
   store: {
     post: (store) => {
       // Connect each store to Redux DevTools
@@ -773,7 +770,8 @@ declare module "fluxdom" {
 Then create a persistence plugin that only applies to stores with `meta.persisted`:
 
 ```ts
-const persistence = domainPlugin({
+// Usage - plugin is chainable
+const app = domain("app").plugin({
   store: {
     // Only apply to stores with meta.persisted = true
     filter: (config) => config.meta?.persisted === true,
@@ -792,9 +790,6 @@ const persistence = domainPlugin({
     },
   },
 });
-
-// Usage
-const app = domain("app").use(persistence);
 
 // This store will be persisted
 const userStore = app.store({
@@ -817,9 +812,34 @@ const tempStore = app.store({
 Plugins are automatically inherited by child domains:
 
 ```ts
-const app = domain("app").use(logging);
-const feature = app.domain("feature"); // Inherits logging plugin
-feature.store({ ... }); // logging hooks are called
+const app = domain("app").plugin({
+  store: { post: (s) => console.log("Store created:", s.name) },
+});
+const feature = app.domain("feature"); // Inherits plugin
+feature.store({ ... }); // plugin hooks are called
+```
+
+#### Batched Hooks
+
+Multiple `.plugin()` calls batch hooks - all pre hooks run in order, then the operation, then all post hooks in order:
+
+```ts
+const app = domain("app")
+  .plugin({
+    store: {
+      pre: () => console.log("p1:pre"),
+      post: () => console.log("p1:post"),
+    },
+  })
+  .plugin({
+    store: {
+      pre: () => console.log("p2:pre"),
+      post: () => console.log("p2:post"),
+    },
+  });
+
+app.store({ name: "test", initial: 0, reducer: (s) => s });
+// Logs: p1:pre → p2:pre → create → p1:post → p2:post
 ```
 
 ### Batching — Optimize Multiple Updates
@@ -1212,13 +1232,11 @@ const api = app.get(ApiModule);
 
 ---
 
-### `domainPlugin(config)`
+### `domain.plugin(config)`
 
-Create a plugin that hooks into domain, store, and module creation.
+Register a plugin that hooks into store, domain, and module methods. Returns the domain for chaining.
 
 ```ts
-import { domainPlugin } from "fluxdom";
-
 interface DomainPluginConfig {
   domain?: {
     filter?: (config: DomainConfig) => boolean;
@@ -1253,16 +1271,15 @@ interface DomainConfig {
 - `post` hooks receive both the instance and config; must return void (side effects only)
 - All hooks are synchronous
 - Plugins are inherited by child domains
+- Multiple `.plugin()` calls batch hooks (p1.pre → p2.pre → create → p1.post → p2.post)
 
 ```ts
-const logging = domainPlugin({
+const app = domain("app").plugin({
   store: {
     pre: (config) => console.log("[store:pre]", config.name),
     post: (store, config) => console.log("[store:created]", store.name, config),
   },
 });
-
-const app = domain("app").use(logging);
 ```
 
 ---
@@ -2358,7 +2375,6 @@ import type {
   StoreConfig,
 
   // Plugin types
-  DomainPlugin,
   DomainPluginConfig,
   DomainConfig,
 
@@ -2379,7 +2395,6 @@ import {
   withUse,
   isPromiseLike, // Check if value is a PromiseLike/thenable
   matches, // Check if action matches action creator(s)
-  domainPlugin, // Create domain plugins
   strictEqual,
   shallowEqual,
   deepEqual,

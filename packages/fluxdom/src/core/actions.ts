@@ -1,4 +1,4 @@
-import { Action, Reducer } from "../types";
+import { Action } from "../types";
 
 // --- Types ---
 
@@ -76,25 +76,6 @@ export type InferActionsFromMap<TMap> = TMap extends Record<
   AnyActionCreator
 >
   ? InferAction<TMap[keyof TMap]>
-  : never;
-
-/** Input types for actions.reducer */
-export type ActionsInput =
-  | Record<string, AnyActionCreator>
-  | AnyActionCreator
-  | readonly (Record<string, AnyActionCreator> | AnyActionCreator)[];
-
-/** Infer action union from ActionsInput */
-type InferActionsFromInput<T> = T extends readonly (infer U)[]
-  ? U extends Record<string, AnyActionCreator>
-    ? InferActionsFromMap<U>
-    : U extends AnyActionCreator
-    ? InferAction<U>
-    : never
-  : T extends Record<string, AnyActionCreator>
-  ? InferActionsFromMap<T>
-  : T extends AnyActionCreator
-  ? InferAction<T>
   : never;
 
 // --- Implementation ---
@@ -224,45 +205,3 @@ export function actions<
 
   return result as InferActionCreators<TMap, TPrefix>;
 }
-
-/**
- * Create a reducer that handles actions from the given action creators.
- *
- * @param actionsInput - Action creators (map, array, or single)
- * @param reducer - Reducer function with auto-inferred action type
- * @returns Reducer function
- *
- * @example
- * ```ts
- * const counterActions = actions({
- *   increment: true,
- *   incrementBy: (n: number) => n,
- * });
- *
- * const appActions = actions({
- *   resetAll: "RESET_ALL",
- * });
- *
- * // Combine multiple action sources
- * const reducer = actions.reducer(
- *   [counterActions, appActions],
- *   (state: number, action) => {
- *     switch (action.type) {
- *       case "increment": return state + 1;
- *       case "incrementBy": return state + action.payload;
- *       case "RESET_ALL": return 0;
- *       default: return state;
- *     }
- *   }
- * );
- *
- * const store = app.store("counter", 0, reducer);
- * ```
- */
-actions.reducer = function reducer<TInput extends ActionsInput, TState>(
-  _actionsInput: TInput,
-  reducerFn: (state: TState, action: InferActionsFromInput<TInput>) => TState
-): Reducer<TState, InferActionsFromInput<TInput>> {
-  // The actionsInput is only used for type inference, not at runtime
-  return reducerFn as Reducer<TState, InferActionsFromInput<TInput>>;
-};

@@ -386,7 +386,7 @@ export interface Domain extends Pipeable {
   ): MutableStore<TState, TStoreActions>;
 
   /** Create a sub-domain (child) that inherits context from this domain. */
-  domain(name: string): Domain;
+  domain(name: string, meta?: DomainMeta): Domain;
 
   /**
    * Create a read-only Derived Store scoped to this domain.
@@ -447,6 +447,33 @@ export interface Domain extends Pipeable {
   >(
     config: ModelConfig<TState, TActionMap, TThunkMap>
   ): ModelWithMethods<TState, TActionMap, TThunkMap>;
+
+  /**
+   * Register a plugin that hooks into store, domain, and module methods.
+   *
+   * Plugins are batched - all pre hooks run in order, then the operation,
+   * then all post hooks in order.
+   *
+   * @param config - Plugin configuration with filter/pre/post hooks
+   * @returns The domain itself for chaining
+   *
+   * @example
+   * ```ts
+   * const app = domain("app")
+   *   .plugin({
+   *     store: {
+   *       pre: (config) => console.log("[store:pre]", config.name),
+   *       post: (store) => console.log("[store:post]", store.getState()),
+   *     },
+   *   })
+   *   .plugin({
+   *     domain: {
+   *       post: (d) => console.log("[domain:created]", d.name),
+   *     },
+   *   });
+   * ```
+   */
+  plugin(config: DomainPluginConfig): this;
 }
 
 /**
@@ -754,15 +781,7 @@ export interface Emitter<T = void> {
 // ============================================
 
 /**
- * Fallback handler for domain actions in model().
- */
-export type ModelFallbackHandler<TState> = (
-  state: TState,
-  action: AnyAction
-) => TState;
-
-/**
- * Action matcher for fallback context.
+ * Action matcher for action context.
  * Can be an action creator with `.match()` method.
  */
 export interface ActionMatcher<TAction extends Action> {
@@ -770,10 +789,21 @@ export interface ActionMatcher<TAction extends Action> {
 }
 
 /**
- * Context provided to fallback builder in model().
- * Allows declarative pattern matching for domain actions.
+ * Built-in reducer helpers for common patterns.
+ */
+export interface ModelReducerHelpers<TState> {
+  /** Returns initial state (reset to default) */
+  reset: (state: TState) => TState;
+  /** Sets state to the given value */
+  set: (state: TState, value: TState) => TState;
+}
+
+/**
+ * Context provided to action builder in model().
+ * Contains helper functions for common reducer patterns and
+ * methods to handle domain actions via `on()`.
  *
- * All matched handlers run in sequence — no "first match wins".
+ * All matched handlers registered via `on()` run in sequence — no "first match wins".
  * Each handler receives the result of the previous one.
  *
  * @example
@@ -781,38 +811,32 @@ export interface ActionMatcher<TAction extends Action> {
  * app.model({
  *   name: "counter",
  *   initial: 0,
- *   actions: (ctx) => ({
- *     increment: (state) => state + 1,
- *     reset: ctx.reducers.reset,
- *   }),
- *   fallback: (ctx) => {
- *     // Single action
+ *   actions: (ctx) => {
+ *     // Handle domain actions with ctx.on()
  *     ctx.on(appActions.logout, ctx.reducers.reset);
- *
- *     // Multiple actions
  *     ctx.on([appActions.clear, appActions.reset], ctx.reducers.reset);
  *
- *     // Catch-all (receives AnyAction)
+ *     // Catch-all handler (receives AnyAction)
  *     ctx.on((state, action) => {
  *       console.log("Received:", action.type);
  *       return state;
  *     });
+ *
+ *     // Return action handlers
+ *     return {
+ *       increment: (state) => state + 1,
+ *       reset: ctx.reducers.reset,
+ *     };
  *   },
  * });
  * ```
  */
-export interface FallbackContext<
-  TState,
-  TReducers = Record<string, (state: TState, ...args: any[]) => TState>
-> {
-  /**
-   * Access to action handlers from the `actions` builder.
-   * Allows reusing reducers in fallback handlers.
-   */
-  reducers: TReducers;
+export interface ModelActionContext<TState> {
+  /** Built-in reducer helpers (reset, set) */
+  reducers: ModelReducerHelpers<TState>;
 
   /**
-   * Register a catch-all handler for any action.
+   * Register a catch-all handler for any action not handled by action map.
    * Receives AnyAction (action with any properties).
    */
   on(handler: (state: TState, action: AnyAction) => TState): void;
@@ -834,31 +858,6 @@ export interface FallbackContext<
     actions: ActionMatcher<TAction>[],
     handler: (state: TState, action: TAction) => TState
   ): void;
-}
-
-/**
- * Fallback builder function for model().
- * Uses a simplified context type to avoid inference issues.
- */
-export type FallbackBuilder<TState> = (ctx: FallbackContext<TState>) => void;
-
-/**
- * Built-in reducer helpers for common patterns.
- */
-export interface ModelReducerHelpers<TState> {
-  /** Returns initial state (reset to default) */
-  reset: (state: TState) => TState;
-  /** Sets state to the given value */
-  set: (state: TState, value: TState) => TState;
-}
-
-/**
- * Context provided to action builder in model().
- * Contains helper functions for common reducer patterns.
- */
-export interface ModelActionContext<TState> {
-  /** Built-in reducer helpers (reset, set) */
-  reducers: ModelReducerHelpers<TState>;
 }
 
 /**
@@ -1138,7 +1137,27 @@ export interface ModelConfig<
   /** Initial state value */
   initial: TState;
 
-  /** Action builder function that receives context helpers and returns action handlers */
+  /**
+   * Action builder function that receives context helpers and returns action handlers.
+   *
+   * Use `ctx.on()` to handle domain actions (cross-cutting concerns like RESET_ALL, LOGOUT).
+   * Use `ctx.reducers` for built-in helpers (reset, set).
+   *
+   * @example
+   * ```ts
+   * actions: (ctx) => {
+   *   // Handle domain actions
+   *   ctx.on(appActions.logout, ctx.reducers.reset);
+   *   ctx.on([appActions.clear, appActions.reset], ctx.reducers.reset);
+   *
+   *   // Return action handlers
+   *   return {
+   *     increment: (state) => state + 1,
+   *     reset: ctx.reducers.reset,
+   *   };
+   * }
+   * ```
+   */
   actions: (ctx: ModelActionContext<TState>) => TActionMap;
 
   /**
@@ -1167,35 +1186,6 @@ export interface ModelConfig<
    */
   effects?: (ctx: ModelEffectsContext<TState, TActionMap>) => TEffectsMap;
 
-  /**
-   * Optional fallback builder for domain actions not handled by explicit actions.
-   * Used to handle cross-cutting concerns like RESET_ALL, LOGOUT, etc.
-   *
-   * Register handlers with `ctx.on()`. All matched handlers run in sequence.
-   * Use `ctx.reducers` to reuse action handlers from the `actions` builder.
-   *
-   * @example
-   * ```ts
-   * app.model({
-   *   name: "counter",
-   *   initial: 0,
-   *   actions: (ctx) => ({
-   *     increment: (state) => state + 1,
-   *     reset: ctx.reducers.reset,
-   *   }),
-   *   fallback: (ctx) => {
-   *     ctx.on(appActions.logout, ctx.reducers.reset);
-   *     ctx.on([appActions.clear, appActions.reset], ctx.reducers.reset);
-   *     ctx.on((state, action) => {
-   *       console.log("Unhandled:", action.type);
-   *       return state;
-   *     });
-   *   },
-   * });
-   * ```
-   */
-  fallback?: FallbackBuilder<TState>;
-
   /** Optional equality strategy for change detection */
   equals?: Equality<TState>;
 
@@ -1214,13 +1204,17 @@ export interface DomainConfig {
 /**
  * Configuration for domain plugins.
  *
- * Plugins can hook into domain, store, and module creation:
- * - `pre` hooks can transform config before creation (return new config or void)
+ * Plugins can hook into store, domain, and module methods:
+ * - `pre` hooks can transform config before method executes (return new config or void)
  * - `post` hooks receive created instance for side effects (must return void)
+ * - `filter` skips hooks if returns false
+ *
+ * Hooks are batched - all pre hooks run in order, then the operation,
+ * then all post hooks in order.
  *
  * @example
  * ```ts
- * const logging = domainPlugin({
+ * const app = domain("app").plugin({
  *   store: {
  *     pre: (config) => {
  *       console.log('[store:pre]', config.name);
@@ -1232,19 +1226,8 @@ export interface DomainConfig {
  *     },
  *   },
  * });
- *
- * const app = domain("app").use(logging);
  * ```
  */
-/**
- * Configuration for subdomain creation.
- */
-export interface DomainConfig {
-  /** Subdomain name (will be prefixed with parent domain name) */
-  name: string;
-  /** Optional metadata for the subdomain */
-  meta?: DomainMeta;
-}
 
 export interface DomainPluginConfig {
   /**
@@ -1319,10 +1302,3 @@ export interface DomainPluginConfig {
     post?: (instance: any, definition: ModuleDef<any>) => void;
   };
 }
-
-/**
- * A domain plugin function.
- *
- * Created via `domainPlugin()`, applied via `domain.use()`.
- */
-export type DomainPlugin = (domain: Domain) => Domain;

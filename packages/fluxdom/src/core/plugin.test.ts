@@ -1,18 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { domain } from "./domain";
-import { domainPlugin } from "./plugin";
 import { module } from "./module";
 import { Action } from "../types";
 
-describe("domainPlugin", () => {
+describe("domain.plugin()", () => {
   describe("store hooks", () => {
     it("should call pre hook before store creation", () => {
       const preHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         store: { pre: preHook },
       });
-
-      const app = domain("app").use(plugin);
       app.store({
         name: "counter",
         initial: 0,
@@ -29,7 +27,7 @@ describe("domainPlugin", () => {
     });
 
     it("should allow pre hook to transform config", () => {
-      const plugin = domainPlugin({
+      const app = domain("app").plugin({
         store: {
           pre: (config) => ({
             ...config,
@@ -37,8 +35,6 @@ describe("domainPlugin", () => {
           }),
         },
       });
-
-      const app = domain("app").use(plugin);
       const store = app.store({
         name: "counter",
         initial: 0,
@@ -50,11 +46,10 @@ describe("domainPlugin", () => {
 
     it("should call post hook after store creation with store and config", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         store: { post: postHook },
       });
-
-      const app = domain("app").use(plugin);
       const store = app.store({
         name: "counter",
         initial: 42,
@@ -70,7 +65,8 @@ describe("domainPlugin", () => {
 
     it("should call both pre and post hooks in order", () => {
       const calls: string[] = [];
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         store: {
           pre: () => {
             calls.push("pre");
@@ -80,8 +76,6 @@ describe("domainPlugin", () => {
           },
         },
       });
-
-      const app = domain("app").use(plugin);
       app.store({
         name: "counter",
         initial: 0,
@@ -91,30 +85,25 @@ describe("domainPlugin", () => {
       expect(calls).toEqual(["pre", "post"]);
     });
 
-    it("should chain multiple plugins", () => {
+    it("should batch multiple plugins (hooks run in order)", () => {
       const calls: string[] = [];
-      const plugin1 = domainPlugin({
-        store: {
-          pre: () => {
-            calls.push("plugin1:pre");
-          },
-          post: () => {
-            calls.push("plugin1:post");
-          },
-        },
-      });
-      const plugin2 = domainPlugin({
-        store: {
-          pre: () => {
-            calls.push("plugin2:pre");
-          },
-          post: () => {
-            calls.push("plugin2:post");
-          },
-        },
-      });
 
-      const app = domain("app").use(plugin1).use(plugin2);
+      // With .plugin().plugin(), hooks are batched:
+      // Order: p1.pre → p2.pre → create → p1.post → p2.post
+      const app = domain("app")
+        .plugin({
+          store: {
+            pre: () => calls.push("plugin1:pre"),
+            post: () => calls.push("plugin1:post"),
+          },
+        })
+        .plugin({
+          store: {
+            pre: () => calls.push("plugin2:pre"),
+            post: () => calls.push("plugin2:post"),
+          },
+        });
+
       app.store({
         name: "counter",
         initial: 0,
@@ -133,11 +122,10 @@ describe("domainPlugin", () => {
   describe("domain hooks", () => {
     it("should call pre hook before subdomain creation", () => {
       const preHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         domain: { pre: preHook },
       });
-
-      const app = domain("app").use(plugin);
       app.domain("child");
 
       expect(preHook).toHaveBeenCalledTimes(1);
@@ -145,7 +133,7 @@ describe("domainPlugin", () => {
     });
 
     it("should allow pre hook to transform subdomain name", () => {
-      const plugin = domainPlugin({
+      const app = domain("app").plugin({
         domain: {
           pre: (options) => ({
             ...options,
@@ -153,8 +141,6 @@ describe("domainPlugin", () => {
           }),
         },
       });
-
-      const app = domain("app").use(plugin);
       const child = app.domain("child");
 
       expect(child.name).toBe("app.prefixed_child");
@@ -162,11 +148,10 @@ describe("domainPlugin", () => {
 
     it("should call post hook after subdomain creation with domain and config", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         domain: { post: postHook },
       });
-
-      const app = domain("app").use(plugin);
       const child = app.domain("child");
 
       expect(postHook).toHaveBeenCalledTimes(1);
@@ -177,13 +162,12 @@ describe("domainPlugin", () => {
   describe("module hooks", () => {
     it("should call pre hook before module instantiation", () => {
       const preHook = vi.fn();
-      const plugin = domainPlugin({
-        module: { pre: preHook },
-      });
 
       const TestModule = module("test", () => ({ value: 42 }));
 
-      const app = domain("app").use(plugin);
+      const app = domain("app").plugin({
+        module: { pre: preHook },
+      });
       app.get(TestModule);
 
       expect(preHook).toHaveBeenCalledTimes(1);
@@ -194,13 +178,12 @@ describe("domainPlugin", () => {
 
     it("should call post hook after module instantiation", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
-        module: { post: postHook },
-      });
 
       const TestModule = module("test", () => ({ value: 42 }));
 
-      const app = domain("app").use(plugin);
+      const app = domain("app").plugin({
+        module: { post: postHook },
+      });
       const instance = app.get(TestModule);
 
       expect(postHook).toHaveBeenCalledTimes(1);
@@ -210,36 +193,35 @@ describe("domainPlugin", () => {
       );
     });
 
-    it("should not call hooks on cached module resolution", () => {
+    it("should call hooks on every get() call", () => {
       const preHook = vi.fn();
       const postHook = vi.fn();
-      const plugin = domainPlugin({
-        module: { pre: preHook, post: postHook },
-      });
 
       const TestModule = module("test", () => ({ value: 42 }));
 
-      const app = domain("app").use(plugin);
+      const app = domain("app").plugin({
+        module: { pre: preHook, post: postHook },
+      });
       app.get(TestModule);
-      app.get(TestModule); // Second call should use cache
+      app.get(TestModule); // Second call - hooks still run
 
-      expect(preHook).toHaveBeenCalledTimes(2); // Pre is called (before cache check)
-      expect(postHook).toHaveBeenCalledTimes(1); // Post only called once (after creation)
+      // pre/post run on every get() call, regardless of caching
+      expect(preHook).toHaveBeenCalledTimes(2);
+      expect(postHook).toHaveBeenCalledTimes(2);
     });
   });
 
   describe("plugin inheritance", () => {
     it("should inherit plugins in child domains", () => {
       const storeCalls: string[] = [];
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         store: {
           post: (store) => {
             storeCalls.push(store.name);
           },
         },
       });
-
-      const app = domain("app").use(plugin);
       const child = app.domain("child");
       const grandchild = child.domain("grandchild");
 
@@ -260,15 +242,14 @@ describe("domainPlugin", () => {
 
     it("should apply parent plugins to child domain creation", () => {
       const domainCalls: string[] = [];
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         domain: {
           post: (d) => {
             domainCalls.push(d.name);
           },
         },
       });
-
-      const app = domain("app").use(plugin);
       const child = app.domain("child");
       child.domain("grandchild");
 
@@ -279,14 +260,13 @@ describe("domainPlugin", () => {
   describe("filter", () => {
     it("should skip store hooks when filter returns false", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         store: {
           filter: (config) => config.meta?.persisted === true,
           post: postHook,
         },
       });
-
-      const app = domain("app").use(plugin);
 
       // Store without meta - should be skipped
       app.store({ name: "temp", initial: 0, reducer: (s) => s });
@@ -304,14 +284,13 @@ describe("domainPlugin", () => {
 
     it("should skip domain hooks when filter returns false", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         domain: {
           filter: (config) => config.meta?.tracked === true,
           post: postHook,
         },
       });
-
-      const app = domain("app").use(plugin);
 
       // Domain without meta - should be skipped
       app.domain("untracked");
@@ -323,17 +302,16 @@ describe("domainPlugin", () => {
 
     it("should skip module hooks when filter returns false", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const UntrackedModule = module("untracked", () => ({ value: 1 }));
+      const TrackedModule = module("tracked-api", () => ({ value: 2 }));
+
+      const app = domain("app").plugin({
         module: {
           filter: (def) => def.name.startsWith("tracked-"),
           post: postHook,
         },
       });
-
-      const UntrackedModule = module("untracked", () => ({ value: 1 }));
-      const TrackedModule = module("tracked-api", () => ({ value: 2 }));
-
-      const app = domain("app").use(plugin);
 
       app.get(UntrackedModule);
       expect(postHook).toHaveBeenCalledTimes(0);
@@ -344,11 +322,10 @@ describe("domainPlugin", () => {
 
     it("should run hooks when no filter is defined", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain("app").plugin({
         store: { post: postHook },
       });
-
-      const app = domain("app").use(plugin);
       app.store({ name: "test", initial: 0, reducer: (s) => s });
 
       expect(postHook).toHaveBeenCalledTimes(1);
@@ -383,11 +360,10 @@ describe("domainPlugin", () => {
   describe("model hooks (via store)", () => {
     it("should call store hooks when model is created", () => {
       const postHook = vi.fn();
-      const plugin = domainPlugin({
+
+      const app = domain<Action>("app").plugin({
         store: { post: postHook },
       });
-
-      const app = domain<Action>("app").use(plugin);
       app.model({
         name: "counter",
         initial: 0,
@@ -403,7 +379,8 @@ describe("domainPlugin", () => {
   describe("use cases", () => {
     it("should support logging plugin", () => {
       const logs: string[] = [];
-      const logging = domainPlugin({
+
+      const app = domain("app").plugin({
         store: {
           pre: (config) => {
             logs.push(`[store:pre] ${config.name}`);
@@ -418,8 +395,6 @@ describe("domainPlugin", () => {
           },
         },
       });
-
-      const app = domain("app").use(logging);
       app.store({ name: "counter", initial: 0, reducer: (s) => s });
       app.domain("child");
 
@@ -432,7 +407,7 @@ describe("domainPlugin", () => {
 
     it("should support config enhancement plugin", () => {
       // Plugin that adds default reducer behavior
-      const withDefaults = domainPlugin({
+      const app = domain("app").plugin({
         store: {
           pre: (config) => {
             if (config.initial === undefined) {
@@ -441,8 +416,6 @@ describe("domainPlugin", () => {
           },
         },
       });
-
-      const app = domain("app").use(withDefaults);
       const store = app.store({
         name: "data",
         initial: undefined as any,
